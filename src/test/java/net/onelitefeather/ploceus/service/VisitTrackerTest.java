@@ -37,10 +37,17 @@ class VisitTrackerTest {
     }
 
     @Test
-    void anUnknownWorldIsIgnored() {
+    void flushingAnUnknownWorldWritesNothing() {
         var recorded = new ArrayList<Map<PloceusKey, Instant>>();
         VisitTracker tracker = trackerWriting(recorded, Map.of());
         tracker.recordVisit("not-in-ploceus", Instant.now());
+
+        // Buffered by name on the hot path — the repository is never consulted here.
+        assertThat(tracker.pendingCount()).isEqualTo(1);
+
+        tracker.flush();
+
+        assertThat(recorded).isEmpty();
         assertThat(tracker.pendingCount()).isZero();
     }
 

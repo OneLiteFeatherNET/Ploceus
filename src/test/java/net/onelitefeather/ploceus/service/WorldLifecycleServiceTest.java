@@ -5,6 +5,7 @@ import net.onelitefeather.ploceus.domain.PloceusKey;
 import net.onelitefeather.ploceus.domain.ProjectWorld;
 import net.onelitefeather.ploceus.persistence.WorldRepository;
 import net.onelitefeather.ploceus.platform.MultiverseAdapter;
+import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 import net.onelitefeather.ploceus.platform.WorldSnapshot;
 import org.junit.jupiter.api.Test;
 
@@ -18,9 +19,10 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/// Covers the decision logic of the synchronous {@code runReaper}: given a set of
+/// Covers the decision logic of the synchronous {@code runReaper} (given a set of
 /// snapshots and matching known worlds, it unloads exactly what {@link UnloadPolicy}
-/// selects and leaves the rest alone.
+/// selects and leaves the rest alone), and the thread hand-off sequence of the
+/// production {@code runReaperAsync}.
 class WorldLifecycleServiceTest {
 
     private static final Instant NOW = Instant.now();
@@ -123,5 +125,68 @@ class WorldLifecycleServiceTest {
 
         assertThat(service.runReaper()).isZero();
         assertThat(unloadedWorlds).isEmpty();
+    }
+
+    /// Proves the hop sequence of the production reaper: a snapshot on the main thread,
+    /// then a decision handed to the async executor, then the unload handed back to the
+    /// main thread. A regression that dropped the final `scheduler.sync` hop — unloading
+    /// worlds off the main thread — would fail this test's ordering assertion even though
+    /// it would slip past `unloadsExactlyTheWorldsThePolicySelects`, which never touches
+    /// `runReaperAsync` at all.
+    @Test
+    void runReaperAsyncSnapshotsOnMainThreadDecidesAsyncAndUnloadsOnMainThread() {
+        List<String> events = new ArrayList<>();
+
+        WorldSnapshot pastIdle = snapshot("elytrarace-desert", true, 0);
+        ProjectWorld pastIdleWorld = world("elytrarace-desert", NOW.minus(60, ChronoUnit.MINUTES));
+        WorldSnapshot stillFresh = snapshot("hub", true, 0);
+        ProjectWorld stillFreshWorld = world("hub", NOW.minus(5, ChronoUnit.MINUTES));
+
+        List<WorldSnapshot> snapshots = List.of(pastIdle, stillFresh);
+        List<ProjectWorld> knownWorlds = List.of(pastIdleWorld, stillFreshWorld);
+
+        MultiverseAdapter multiverse = new MultiverseAdapter(null, null) {
+            @Override public List<WorldSnapshot> snapshotAll() {
+                events.add("snapshotAll");
+                return snapshots;
+            }
+            @Override public OperationResult<Void> unload(String worldName) {
+                events.add("unload:" + worldName);
+                return OperationResult.success(null);
+            }
+        };
+
+        WorldRepository worlds = new WorldRepository(null) {
+            @Override public List<ProjectWorld> findAll() {
+                events.add("findAll");
+                return knownWorlds;
+            }
+        };
+
+        // Records the hand-off order and executes each piece of work immediately, so the
+        // test stays deterministic without a real scheduler or thread hop.
+        SchedulerAdapter scheduler = new SchedulerAdapter(null) {
+            @Override public void async(Runnable work) {
+                events.add("async-start");
+                work.run();
+                events.add("async-end");
+            }
+            @Override public void sync(Runnable work) {
+                events.add("sync-start");
+                work.run();
+                events.add("sync-end");
+            }
+        };
+
+        UnloadPolicy policy = new UnloadPolicy(30, Set.of(), "world");
+
+        WorldLifecycleService service = new WorldLifecycleService(
+                multiverse, worlds, scheduler, null, policy, null);
+
+        service.runReaperAsync();
+
+        assertThat(events).containsExactly(
+                "snapshotAll", "async-start", "findAll", "sync-start",
+                "unload:elytrarace-desert", "sync-end", "async-end");
     }
 }

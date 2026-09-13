@@ -81,4 +81,23 @@ public class PloceusModule extends AbstractModule {
     @Provides @Singleton WorldImportService importService(WorldRepository worlds, AuditService audit) {
         return new WorldImportService(worlds, audit);
     }
+
+    @Provides @Singleton
+    UnloadPolicy unloadPolicy(PloceusConfig config, Plugin plugin) {
+        String defaultWorld = plugin.getServer().getWorlds().getFirst().getName();
+        return new UnloadPolicy(config.idleUnloadMinutes(),
+                java.util.Set.copyOf(config.neverUnload()), defaultWorld);
+    }
+
+    @Provides @Singleton
+    VisitTracker visitTracker(WorldRepository worlds, SchedulerAdapter scheduler) {
+        return new VisitTracker(worlds, scheduler);
+    }
+
+    @Provides @Singleton
+    WorldLifecycleService lifecycle(MultiverseAdapter multiverse, WorldRepository worlds,
+                                    SchedulerAdapter scheduler, VisitTracker visits,
+                                    UnloadPolicy policy, PloceusConfig config) {
+        return new WorldLifecycleService(multiverse, worlds, scheduler, visits, policy, config);
+    }
 }

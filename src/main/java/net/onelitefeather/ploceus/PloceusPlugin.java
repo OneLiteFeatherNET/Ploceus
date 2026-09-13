@@ -10,6 +10,7 @@ import net.onelitefeather.ploceus.platform.MultiverseAdapter;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 import net.onelitefeather.ploceus.platform.WorldSnapshot;
 import net.onelitefeather.ploceus.service.WorldImportService;
+import net.onelitefeather.ploceus.service.WorldLifecycleService;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.hibernate.SessionFactory;
 import org.mvplugins.multiverse.core.MultiverseCoreApi;
@@ -38,6 +39,9 @@ public final class PloceusPlugin extends JavaPlugin {
                     new PloceusModule(this, config, sessionFactory, dataSource, api));
             scheduler = injector.getInstance(SchedulerAdapter.class);
             importExistingWorlds();
+            getServer().getPluginManager().registerEvents(
+                    injector.getInstance(net.onelitefeather.ploceus.listener.WorldVisitListener.class), this);
+            injector.getInstance(WorldLifecycleService.class).start();
             getLogger().info("Ploceus enabled");
         });
     }
@@ -72,6 +76,9 @@ public final class PloceusPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (injector != null) {
+            injector.getInstance(WorldLifecycleService.class).close();
+        }
         if (scheduler != null) {
             scheduler.close();
         }

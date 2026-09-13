@@ -98,9 +98,18 @@ public class MultiverseAdapter {
     }
 
     public OperationResult<String> createWorld(WorldCreationRequest request) {
+        World.Environment environment;
+        try {
+            environment = World.Environment.valueOf(request.environment());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            // Reachable from a dialog input, not just a programming error — every path
+            // out of this class must be an OperationResult, never a thrown exception.
+            return OperationResult.failure("world.create.failed", String.valueOf(request.environment()));
+        }
+
         CreateWorldOptions options = CreateWorldOptions
                 .worldKey(new NamespacedKey(PloceusKey.NAMESPACE, request.key().value()))
-                .environment(World.Environment.valueOf(request.environment()))
+                .environment(environment)
                 .generateStructures(request.generateStructures());
 
         if (request.generator() != null && !request.generator().isBlank()) {

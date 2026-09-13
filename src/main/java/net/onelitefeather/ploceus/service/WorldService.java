@@ -62,21 +62,29 @@ public class WorldService {
     /// Changes the display name only. The world name and its folder stay fixed —
     /// Multiverse 5.8.1 cannot rename a world, and the folder anchors WorldGuard, Axiom
     /// and BlueMap. The new name is mirrored onto the Multiverse alias.
+    ///
+    /// The alias is mirrored FIRST, before anything is persisted or audited: this is the
+    /// only ordering that keeps the operation all-or-nothing. Persisting first and mirroring
+    /// second would report failure to the caller after the record was already renamed and
+    /// audited, leaving the database and Multiverse disagreeing about the world's name.
     public OperationResult<ProjectWorld> rename(PloceusKey key, String displayName, Actor actor) {
-        OperationResult<ProjectWorld> result = mutate(key, actor, world -> {
-            String old = world.getDisplayName();
-            world.setDisplayName(displayName);
+        Optional<ProjectWorld> found = worlds.findByKey(key);
+        if (found.isEmpty()) {
+            return OperationResult.failure("world.unknown", key.asString());
+        }
+        ProjectWorld world = found.get();
+
+        OperationResult<Void> alias = multiverse.setAlias(world.getWorldName(), displayName);
+        if (!alias.isSuccess()) {
+            return OperationResult.failure("world.alias.failed", world.getWorldName());
+        }
+
+        return mutate(key, actor, w -> {
+            String old = w.getDisplayName();
+            w.setDisplayName(displayName);
             audit.recordChange(WORLD, key, actor, AuditAction.WORLD_UPDATED,
                     "displayName", old, displayName);
         });
-        if (result.isSuccess()) {
-            ProjectWorld world = ((OperationResult.Success<ProjectWorld>) result).value();
-            OperationResult<Void> alias = multiverse.setAlias(world.getWorldName(), displayName);
-            if (!alias.isSuccess()) {
-                return OperationResult.failure("world.alias.failed", world.getWorldName());
-            }
-        }
-        return result;
     }
 
     public OperationResult<ProjectWorld> describe(PloceusKey key, String description, Actor actor) {

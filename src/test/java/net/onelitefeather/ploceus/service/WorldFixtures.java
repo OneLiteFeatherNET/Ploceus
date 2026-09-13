@@ -73,9 +73,26 @@ final class WorldFixtures {
 
     private final AuditService auditService = new AuditService(auditRepository);
 
-    /// Never invoked by these tests: WorldService only calls it from `rename`, which none
-    /// of the import tests exercise. Constructed with nulls purely to satisfy the type.
-    private final MultiverseAdapter multiverse = new MultiverseAdapter(null, null);
+    private final MultiverseAdapter multiverse;
+
+    /// Default double: an always-succeeding alias mirror, since the real
+    /// `MultiverseAdapter` would call into a `null` `MultiverseCoreApi` and throw as soon
+    /// as `rename` invokes it. Tests that need to see a failed alias mirror pass their own
+    /// `MultiverseAdapter` override instead.
+    WorldFixtures() {
+        this(new MultiverseAdapter(null, null) {
+            @Override
+            public OperationResult<Void> setAlias(String worldName, String alias) {
+                return OperationResult.success(null);
+            }
+        });
+    }
+
+    /// Lets a test supply a `MultiverseAdapter` subclass whose methods are overridden to
+    /// return a canned `OperationResult`, e.g. to exercise `rename`'s alias-failure path.
+    WorldFixtures(MultiverseAdapter multiverse) {
+        this.multiverse = multiverse;
+    }
 
     WorldService worldService() {
         return new WorldService(worlds, projects, tags, auditService, multiverse);

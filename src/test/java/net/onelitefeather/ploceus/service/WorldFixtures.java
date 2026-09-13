@@ -1,0 +1,91 @@
+package net.onelitefeather.ploceus.service;
+
+import net.onelitefeather.ploceus.domain.*;
+import net.onelitefeather.ploceus.persistence.*;
+import net.onelitefeather.ploceus.platform.MultiverseAdapter;
+
+import java.time.Instant;
+import java.util.*;
+
+/// In-memory double for `WorldRepository`, mirroring `InMemoryFixtures`' approach for
+/// `ProjectRepository` so world-related services can be tested without a database or a
+/// server. Each instance owns its own storage and audit trail.
+final class WorldFixtures {
+
+    private final List<AuditEntry> audit = new ArrayList<>();
+    private final Map<PloceusKey, ProjectWorld> storage = new LinkedHashMap<>();
+
+    private final WorldRepository worlds = new WorldRepository(null) {
+        @Override public Optional<ProjectWorld> findByKey(PloceusKey key) {
+            return Optional.ofNullable(storage.get(key));
+        }
+        @Override public Optional<ProjectWorld> findByWorldName(String worldName) {
+            return storage.values().stream()
+                    .filter(world -> world.getWorldName().equals(worldName))
+                    .findFirst();
+        }
+        @Override public List<ProjectWorld> findAll() { return List.copyOf(storage.values()); }
+        @Override public List<ProjectWorld> findUnassigned() {
+            return storage.values().stream().filter(ProjectWorld::isUnassigned).toList();
+        }
+        @Override public List<ProjectWorld> findByProject(Project project) {
+            return storage.values().stream()
+                    .filter(world -> !world.isUnassigned() && world.getProject().getKey().equals(project.getKey()))
+                    .toList();
+        }
+        @Override public List<ProjectWorld> search(String term) { return findAll(); }
+        @Override public void save(ProjectWorld world) { storage.put(world.getKey(), world); }
+        @Override public void delete(ProjectWorld world) { storage.remove(world.getKey()); }
+        @Override public void updateLastVisited(Map<PloceusKey, Instant> visits) {
+            visits.forEach((key, at) -> {
+                ProjectWorld world = storage.get(key);
+                if (world != null) {
+                    world.setLastVisitedAt(at);
+                }
+            });
+        }
+    };
+
+    private final ProjectRepository projects = new ProjectRepository(null) {
+        @Override public Optional<Project> findByKey(PloceusKey key) { return Optional.empty(); }
+        @Override public List<Project> findAll() { return List.of(); }
+        @Override public List<Project> search(String term) { return List.of(); }
+        @Override public void save(Project project) { }
+        @Override public void delete(Project project) { }
+    };
+
+    private final TagRepository tags = new TagRepository(null) {
+        private final Map<PloceusKey, Tag> known = new LinkedHashMap<>();
+        @Override public Tag findOrCreate(PloceusKey key) {
+            return known.computeIfAbsent(key, Tag::new);
+        }
+        @Override public List<Tag> findAll() { return List.copyOf(known.values()); }
+    };
+
+    private final AuditRepository auditRepository = new AuditRepository(null) {
+        @Override public void append(AuditEntry entry) { audit.add(entry); }
+        @Override public List<AuditEntry> findByTarget(PloceusKey t, int limit, int offset) {
+            return audit.reversed().stream()
+                    .filter(e -> e.getTargetId().equals(t))
+                    .skip(offset).limit(limit).toList();
+        }
+    };
+
+    private final AuditService auditService = new AuditService(auditRepository);
+
+    /// Never invoked by these tests: WorldService only calls it from `rename`, which none
+    /// of the import tests exercise. Constructed with nulls purely to satisfy the type.
+    private final MultiverseAdapter multiverse = new MultiverseAdapter(null, null);
+
+    WorldService worldService() {
+        return new WorldService(worlds, projects, tags, auditService, multiverse);
+    }
+
+    WorldImportService importService() {
+        return new WorldImportService(worlds, auditService);
+    }
+
+    AuditEntry lastAudit() { return audit.getLast(); }
+
+    int auditCount() { return audit.size(); }
+}

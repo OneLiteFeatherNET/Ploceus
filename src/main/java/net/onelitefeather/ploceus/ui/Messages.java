@@ -23,6 +23,7 @@ public final class Messages {
             Map.entry("menu.worlds", "<yellow>Worlds (<count>)</yellow>"),
             Map.entry("audit.title", "<gold>Audit trail</gold>"),
             Map.entry("project.delete.prompt", "<red>Delete this project? This cannot be undone.</red>"),
+            Map.entry("error.noPermission", "<red>You do not have permission to do that.</red>"),
             Map.entry("project.list.title", "<gold>Projects</gold> <gray>(page <white><page></white>/<white><pages></white>)</gray>"),
             Map.entry("project.entry", "<yellow><name></yellow> <gray>— <worlds> worlds, <tags></gray>"),
             Map.entry("project.created", "<green>Project <white><name></white> created.</green>"),

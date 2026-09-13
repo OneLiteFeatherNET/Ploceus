@@ -8,6 +8,7 @@ import net.onelitefeather.ploceus.ui.UiChannel;
 import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.Plugin;
 import org.incendo.cloud.annotations.AnnotationParser;
+import org.incendo.cloud.bukkit.BukkitCommandManager;
 import org.incendo.cloud.bukkit.CloudBukkitCapabilities;
 import org.incendo.cloud.execution.ExecutionCoordinator;
 import org.incendo.cloud.paper.LegacyPaperCommandManager;
@@ -55,18 +56,7 @@ public class CommandRegistrar {
         LegacyPaperCommandManager<CommandSender> manager =
                 LegacyPaperCommandManager.createNative(plugin, ExecutionCoordinator.asyncCoordinator());
 
-        // BukkitCommandManager's own Javadoc warns that classic tab completion blocks the
-        // main thread by default; PloceusKeyParser's suggestions call straight into the
-        // project/world repositories, so without this every keystroke while tab-completing
-        // a key would run a JDBC query on the main thread. This routes suggestion queries
-        // through Paper's AsyncTabCompleteEvent instead.
-        if (manager.hasCapability(CloudBukkitCapabilities.ASYNCHRONOUS_COMPLETION)) {
-            manager.registerAsynchronousCompletions();
-        } else {
-            plugin.getLogger().log(Level.WARNING,
-                    "Server does not support asynchronous tab completion; "
-                            + "Ploceus key suggestions may briefly block the main thread.");
-        }
+        registerCompletionSupport(manager);
 
         // One key parser serves both project and world keys: suggestions are the union of
         // both pools, and PloceusKey itself carries no notion of "project key" vs "world key".
@@ -75,6 +65,50 @@ public class CommandRegistrar {
         manager.parserRegistry().registerParser(EnumParser.enumParser(UiChannel.class));
 
         new AnnotationParser<>(manager, CommandSender.class).parse(commands);
+    }
+
+    /// Prefers native Brigadier (client-side red/green argument validation as the player
+    /// types, plus non-blocking suggestions built in) over the classic async-completion
+    /// fallback. Cloud's own Javadoc on {@code registerAsynchronousCompletions} explicitly
+    /// advises against combining the two — Brigadier already gives non-blocking suggestions
+    /// at higher fidelity — so the fallback is only registered when Brigadier could not be.
+    ///
+    /// {@code registerBrigadier()} declares a checked-looking
+    /// {@code BrigadierInitializationException}, but it actually extends
+    /// {@code IllegalStateException} (unchecked, confirmed via `javap`), so a failure would
+    /// otherwise propagate out of `onEnable` and abort the whole plugin. Caught explicitly:
+    /// losing Brigadier's client-side validation is acceptable degradation, losing every
+    /// Ploceus command because one optional capability failed to initialize is not.
+    private void registerCompletionSupport(LegacyPaperCommandManager<CommandSender> manager) {
+        if (manager.hasCapability(CloudBukkitCapabilities.NATIVE_BRIGADIER)) {
+            try {
+                manager.registerBrigadier();
+                return;
+            } catch (BukkitCommandManager.BrigadierInitializationException exception) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to register native Brigadier support; falling back to "
+                                + "classic command registration. Client-side argument "
+                                + "validation will be unavailable.", exception);
+            }
+        } else {
+            plugin.getLogger().info(
+                    "Server does not support native Brigadier commands; falling back to "
+                            + "classic command registration.");
+        }
+
+        // BukkitCommandManager's own Javadoc warns that classic tab completion blocks the
+        // main thread by default; PloceusKeyParser's suggestions call straight into the
+        // project/world repositories, so without this every keystroke while tab-completing
+        // a key would run a JDBC query on the main thread. This routes suggestion queries
+        // through Paper's AsyncTabCompleteEvent instead, reached only when Brigadier is
+        // unavailable or failed to initialize.
+        if (manager.hasCapability(CloudBukkitCapabilities.ASYNCHRONOUS_COMPLETION)) {
+            manager.registerAsynchronousCompletions();
+        } else {
+            plugin.getLogger().log(Level.WARNING,
+                    "Server does not support asynchronous tab completion; "
+                            + "Ploceus key suggestions may briefly block the main thread.");
+        }
     }
 
     private List<PloceusKey> allKeys() {

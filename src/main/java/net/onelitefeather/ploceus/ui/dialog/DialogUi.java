@@ -1,9 +1,14 @@
 package net.onelitefeather.ploceus.ui.dialog;
 
+import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
+import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
+import io.papermc.paper.registry.data.dialog.input.DialogInput;
+import io.papermc.paper.registry.data.dialog.input.SingleOptionDialogInput;
 import jakarta.inject.Inject;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickCallback;
 import net.onelitefeather.ploceus.PloceusConfig;
 import net.onelitefeather.ploceus.domain.*;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
@@ -17,7 +22,9 @@ import org.bukkit.entity.Player;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static net.onelitefeather.ploceus.ui.Messages.placeholder;
 import static net.onelitefeather.ploceus.ui.dialog.DialogCallbacks.button;
@@ -173,20 +180,87 @@ public class DialogUi implements ProjectUi {
                 button(Messages.get("button.cancel"), null, player::closeDialog)));
     }
 
-    // Formularscreens (Task 16 replaces these three).
     @Override
     public void searchPrompt(Player player) {
-        throw new UnsupportedOperationException("Task 16");
+        var term = DialogInput.text("term", Messages.get("menu.search")).build();
+        player.showDialog(DialogFactory.notice(
+                Messages.get("menu.search"),
+                List.of(DialogBody.plainMessage(Messages.get("search.prompt"))),
+                List.of(term),
+                submitButton(view -> {
+                    String entered = textOf(view, "term");
+                    scheduler.async(() -> {
+                        Page<Project> foundProjects =
+                                Page.of(projects.search(entered), 0, config.entriesPerPage());
+                        Page<ProjectWorld> foundWorlds =
+                                Page.of(worlds.search(entered), 0, config.entriesPerPage());
+                        scheduler.sync(() -> searchResults(player, entered, foundProjects, foundWorlds));
+                    });
+                })));
     }
 
     @Override
     public void createProjectForm(Player player) {
-        throw new UnsupportedOperationException("Task 16");
+        var keyInput = DialogInput.text("key", Messages.get("form.key")).build();
+        var nameInput = DialogInput.text("displayName", Messages.get("form.displayName")).build();
+        var descriptionInput = DialogInput.text("description", Messages.get("form.description")).build();
+        var tagsInput = DialogInput.text("tags", Messages.get("form.tags")).build();
+
+        player.showDialog(DialogFactory.notice(
+                Messages.get("menu.projects"), List.of(),
+                List.of(keyInput, nameInput, descriptionInput, tagsInput),
+                submitButton(view -> {
+                    OperationResult<PloceusKey> key = FormInputs.validateKey(view.getText("key"));
+                    if (!(key instanceof OperationResult.Success<PloceusKey> success)) {
+                        feedback(player, key, "");
+                        return;
+                    }
+                    PloceusKey projectKey = success.value();
+                    Actor actor = new Actor(player.getUniqueId(), player.getName());
+                    String displayName = textOf(view, "displayName");
+                    String description = textOf(view, "description");
+                    List<PloceusKey> tags = FormInputs.parseTags(view.getText("tags"));
+                    scheduler.async(() -> {
+                        OperationResult<Project> created = projects.create(projectKey, displayName, actor);
+                        if (created.isSuccess()) {
+                            projects.describe(projectKey, description, actor);
+                            tags.forEach(tag -> projects.addTag(projectKey, tag, actor));
+                        }
+                        scheduler.sync(() -> feedback(player, created, "project.created"));
+                    });
+                })));
     }
 
     @Override
     public void editProjectForm(Player player, Project project) {
-        throw new UnsupportedOperationException("Task 16");
+        var nameInput = DialogInput.text("displayName", Messages.get("form.displayName"))
+                .initial(project.getDisplayName()).build();
+        var descriptionInput = DialogInput.text("description", Messages.get("form.description"))
+                .initial(project.getDescription()).build();
+        var statusInput = DialogInput.singleOption("status", Messages.get("form.status"),
+                        Arrays.stream(ProjectStatus.values())
+                                .map(status -> SingleOptionDialogInput.OptionEntry.create(
+                                        status.name(), Component.text(status.name()), status == project.getStatus()))
+                                .toList())
+                .build();
+
+        player.showDialog(DialogFactory.notice(
+                Component.text(project.getDisplayName()), List.of(),
+                List.of(nameInput, descriptionInput, statusInput),
+                submitButton(view -> {
+                    Actor actor = new Actor(player.getUniqueId(), player.getName());
+                    PloceusKey key = project.getKey();
+                    String displayName = textOf(view, "displayName");
+                    String description = textOf(view, "description");
+                    String status = textOf(view, "status");
+                    scheduler.async(() -> {
+                        projects.rename(key, displayName, actor);
+                        projects.describe(key, description, actor);
+                        OperationResult<Project> result =
+                                projects.setStatus(key, ProjectStatus.valueOf(status), actor);
+                        scheduler.sync(() -> feedback(player, result, "project.updated"));
+                    });
+                })));
     }
 
     /// World-creation form arrives with Task 18, once world creation options (generators,
@@ -267,6 +341,20 @@ public class DialogUi implements ProjectUi {
             Page<AuditEntry> page = new Page<>(items, pageNumber, size, totalItems);
             scheduler.sync(() -> auditTrail(player, target, page));
         });
+    }
+
+    /// A submit button whose callback reads the entered values.
+    private ActionButton submitButton(Consumer<DialogResponseView> onSubmit) {
+        return ActionButton.builder(Messages.get("button.confirm"))
+                .action(DialogAction.customClick(
+                        (view, audience) -> onSubmit.accept(view),
+                        ClickCallback.Options.builder().uses(ClickCallback.UNLIMITED_USES).build()))
+                .build();
+    }
+
+    private static String textOf(DialogResponseView view, String key) {
+        String value = view.getText(key);
+        return value == null ? "" : value;
     }
 
     private ActionButton exitButton() {

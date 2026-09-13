@@ -1,0 +1,9 @@
+name: Build PR
+on:
+  pull_request:
+    branches: [ main ]
+jobs:
+  build:
+    uses: OneLiteFeatherNET/workflows/.github/workflows/gradle-build-pr.yml@v2.8.1
+    with:
+      java-version: 25

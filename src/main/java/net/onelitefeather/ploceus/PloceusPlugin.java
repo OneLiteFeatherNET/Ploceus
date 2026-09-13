@@ -3,6 +3,7 @@ package net.onelitefeather.ploceus;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.zaxxer.hikari.HikariDataSource;
+import net.onelitefeather.ploceus.command.CommandRegistrar;
 import net.onelitefeather.ploceus.di.PloceusModule;
 import net.onelitefeather.ploceus.domain.Actor;
 import net.onelitefeather.ploceus.persistence.HibernateBootstrap;
@@ -44,6 +45,7 @@ public final class PloceusPlugin extends JavaPlugin {
             getServer().getPluginManager().registerEvents(
                     injector.getInstance(net.onelitefeather.ploceus.listener.UiRouterListener.class), this);
             injector.getInstance(WorldLifecycleService.class).start();
+            injector.getInstance(CommandRegistrar.class).register();
             getLogger().info("Ploceus enabled");
         });
     }

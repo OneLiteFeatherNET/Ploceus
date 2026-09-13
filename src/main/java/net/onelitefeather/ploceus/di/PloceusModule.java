@@ -2,7 +2,6 @@ package net.onelitefeather.ploceus.di;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
-import com.google.inject.multibindings.MapBinder;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.inject.Singleton;
 import net.onelitefeather.ploceus.PloceusConfig;
@@ -42,12 +41,20 @@ public class PloceusModule extends AbstractModule {
         bind(SessionFactory.class).toInstance(sessionFactory);
         bind(HikariDataSource.class).toInstance(dataSource);
         bind(MultiverseCoreApi.class).toInstance(multiverseApi);
+    }
 
-        // UI channels: only chat exists so far; dialog and inventory are added by later
-        // tasks. UiRouter falls back to whichever channel is actually bound.
-        MapBinder<UiChannel, ProjectUi> uiChannels =
-                MapBinder.newMapBinder(binder(), UiChannel.class, ProjectUi.class);
-        uiChannels.addBinding(UiChannel.CHAT).to(ChatUi.class);
+    /// UI channels: only chat exists so far; dialog and inventory are added by Tasks 15-17.
+    /// All three `UiChannel` values map to it in the meantime, so `UiRouter.forPlayer`
+    /// never resolves to a missing channel and returns `null` — a real risk now that Task
+    /// 14 wires actual command handlers through `UiRouter`: `UiRouter.choose` defaults
+    /// unpreferenced players to `DIALOG` once their protocol version reaches
+    /// `min-dialog-protocol`, which most current clients do.
+    @Provides @Singleton
+    java.util.Map<UiChannel, ProjectUi> channels(ChatUi chat) {
+        return java.util.Map.of(
+                UiChannel.CHAT, chat,
+                UiChannel.INVENTORY, chat,
+                UiChannel.DIALOG, chat);
     }
 
     @Provides @Singleton SchedulerAdapter scheduler(Plugin plugin) {

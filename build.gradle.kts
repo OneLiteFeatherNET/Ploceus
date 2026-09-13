@@ -27,6 +27,7 @@ dependencies {
     testImplementation(files("libs/multiverse-core-5.8.1.jar"))
     testImplementation(libs.bundles.persistence)
     testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.archunit)
     testImplementation(libs.assertj)
     testImplementation(libs.testcontainers.postgresql)

@@ -39,6 +39,7 @@ dependencyResolutionManagement {
             bundle("persistence", listOf("hibernate.core", "hikari", "liquibase.core", "h2", "postgresql"))
 
             library("junit.jupiter", "org.junit.jupiter", "junit-jupiter").versionRef("junit")
+            library("junit.platform.launcher", "org.junit.platform", "junit-platform-launcher").version("1.11.4")
             library("archunit", "com.tngtech.archunit", "archunit-junit5").version("1.5.0")
             library("testcontainers.postgresql", "org.testcontainers", "postgresql").version("1.21.4")
             library("testcontainers.junit", "org.testcontainers", "junit-jupiter").version("1.21.4")

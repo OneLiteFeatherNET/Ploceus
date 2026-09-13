@@ -61,7 +61,10 @@ public final class Messages {
             Map.entry("form.seed", "<yellow>Seed (empty = random)</yellow>"),
             Map.entry("form.invalidKey", "<red><white><detail></white> is not a valid key. Use lowercase letters, digits, '-', '_' and '.'.</red>"),
             Map.entry("ui.changed", "<green>Interface set to <white><channel></white>.</green>"),
-            Map.entry("import.done", "<green>Imported <white><imported></white> worlds, <white><known></white> already known.</green>")
+            Map.entry("import.done", "<green>Imported <white><imported></white> worlds, <white><known></white> already known.</green>"),
+            Map.entry("world.state.neverVisited", "<dark_gray>never visited</dark_gray>"),
+            Map.entry("world.state.visited", "<green>known</green>"),
+            Map.entry("project.noTags", "<gray>no tags</gray>")
     );
 
     private Messages() { }
@@ -81,5 +84,11 @@ public final class Messages {
 
     public static TagResolver placeholder(String name, String value) {
         return Placeholder.unparsed(name, value == null ? "" : value);
+    }
+
+    /// For composing another message's already-rendered `Component` (e.g. a state label
+    /// looked up via {@link #get}) into a placeholder, instead of flattening it to a string.
+    public static TagResolver component(String name, Component value) {
+        return Placeholder.component(name, value);
     }
 }

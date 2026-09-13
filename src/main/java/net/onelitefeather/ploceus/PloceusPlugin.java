@@ -41,6 +41,8 @@ public final class PloceusPlugin extends JavaPlugin {
             importExistingWorlds();
             getServer().getPluginManager().registerEvents(
                     injector.getInstance(net.onelitefeather.ploceus.listener.WorldVisitListener.class), this);
+            getServer().getPluginManager().registerEvents(
+                    injector.getInstance(net.onelitefeather.ploceus.listener.UiRouterListener.class), this);
             injector.getInstance(WorldLifecycleService.class).start();
             getLogger().info("Ploceus enabled");
         });

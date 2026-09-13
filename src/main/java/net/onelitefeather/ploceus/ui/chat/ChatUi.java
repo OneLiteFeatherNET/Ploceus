@@ -43,7 +43,7 @@ public class ChatUi implements ProjectUi {
             player.sendMessage(Messages.get("project.entry",
                             placeholder("name", project.getDisplayName()),
                             placeholder("worlds", String.valueOf(project.getWorlds().size())),
-                            placeholder("tags", tagList(project)))
+                            Messages.component("tags", tagList(project)))
                     .clickEvent(ClickEvent.runCommand(
                             "/ploceus project info " + project.getKey().value())));
         }
@@ -56,7 +56,7 @@ public class ChatUi implements ProjectUi {
         player.sendMessage(Messages.chat("project.entry",
                 placeholder("name", project.getDisplayName()),
                 placeholder("worlds", String.valueOf(worlds.size())),
-                placeholder("tags", tagList(project))));
+                Messages.component("tags", tagList(project))));
         player.sendMessage(Component.text(project.getDescription()));
         worlds.forEach(world -> player.sendMessage(worldLine(world)));
     }
@@ -91,7 +91,7 @@ public class ChatUi implements ProjectUi {
         projects.items().forEach(project -> player.sendMessage(Messages.get("project.entry",
                         placeholder("name", project.getDisplayName()),
                         placeholder("worlds", String.valueOf(project.getWorlds().size())),
-                        placeholder("tags", tagList(project)))
+                        Messages.component("tags", tagList(project)))
                 .clickEvent(ClickEvent.runCommand("/ploceus project info " + project.getKey().value()))));
         worlds.items().forEach(world -> player.sendMessage(worldLine(world)));
     }
@@ -151,17 +151,22 @@ public class ChatUi implements ProjectUi {
     }
 
     private Component worldLine(ProjectWorld world) {
+        String stateKey = world.getLastVisitedAt() == null
+                ? "world.state.neverVisited"
+                : "world.state.visited";
         return Messages.get("world.entry",
                         placeholder("name", world.getDisplayName()),
-                        placeholder("state", world.getLastVisitedAt() == null ? "never visited" : "known"))
+                        Messages.component("state", Messages.get(stateKey)))
                 .clickEvent(ClickEvent.runCommand("/ploceus world tp " + world.getKey().value()));
     }
 
-    private String tagList(Project project) {
-        return project.getTags().stream()
+    private Component tagList(Project project) {
+        List<String> tagValues = project.getTags().stream()
                 .map(tag -> tag.getKey().value())
-                .reduce((a, b) -> a + ", " + b)
-                .orElse("no tags");
+                .toList();
+        return tagValues.isEmpty()
+                ? Messages.get("project.noTags")
+                : Component.text(String.join(", ", tagValues));
     }
 
     private void sendPagination(Player player, int pageNumber, boolean hasPrevious, boolean hasNext,

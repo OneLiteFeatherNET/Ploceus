@@ -2,6 +2,7 @@ package net.onelitefeather.ploceus.di;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
+import com.google.inject.multibindings.MapBinder;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.inject.Singleton;
 import net.onelitefeather.ploceus.PloceusConfig;
@@ -9,6 +10,10 @@ import net.onelitefeather.ploceus.persistence.*;
 import net.onelitefeather.ploceus.platform.MultiverseAdapter;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 import net.onelitefeather.ploceus.service.*;
+import net.onelitefeather.ploceus.ui.ProjectUi;
+import net.onelitefeather.ploceus.ui.UiChannel;
+import net.onelitefeather.ploceus.ui.UiPreferences;
+import net.onelitefeather.ploceus.ui.chat.ChatUi;
 import org.bukkit.plugin.Plugin;
 import org.hibernate.SessionFactory;
 import org.mvplugins.multiverse.core.MultiverseCoreApi;
@@ -37,6 +42,12 @@ public class PloceusModule extends AbstractModule {
         bind(SessionFactory.class).toInstance(sessionFactory);
         bind(HikariDataSource.class).toInstance(dataSource);
         bind(MultiverseCoreApi.class).toInstance(multiverseApi);
+
+        // UI channels: only chat exists so far; dialog and inventory are added by later
+        // tasks. UiRouter falls back to whichever channel is actually bound.
+        MapBinder<UiChannel, ProjectUi> uiChannels =
+                MapBinder.newMapBinder(binder(), UiChannel.class, ProjectUi.class);
+        uiChannels.addBinding(UiChannel.CHAT).to(ChatUi.class);
     }
 
     @Provides @Singleton SchedulerAdapter scheduler(Plugin plugin) {
@@ -61,6 +72,14 @@ public class PloceusModule extends AbstractModule {
 
     @Provides @Singleton AuditRepository auditRepository(SessionFactory factory) {
         return new AuditRepository(factory);
+    }
+
+    @Provides @Singleton PlayerPreferenceRepository playerPreferenceRepository(SessionFactory factory) {
+        return new PlayerPreferenceRepository(factory);
+    }
+
+    @Provides @Singleton UiPreferences uiPreferences(PlayerPreferenceRepository repository) {
+        return repository;
     }
 
     @Provides @Singleton AuditService auditService(AuditRepository repository) {

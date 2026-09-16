@@ -52,10 +52,27 @@ public class UiRouter {
         if (cached != null) {
             return channels.get(cached);
         }
+        warm(uuid, protocolVersion);
+        return channels.get(choose(protocolVersion, Optional.empty(), config.minDialogProtocol()));
+    }
+
+    /// Loads a player's stored preference into the cache off the main thread, without
+    /// answering anything.
+    ///
+    /// Called from `UiRouterListener` on join, because {@link #resolve} on its own is not
+    /// enough: it answers a cache miss with the protocol-derived default and only warms the
+    /// cache afterwards, and `UiRouterListener` drops the entry on quit. A player who chose
+    /// `chat` — plausibly because dialogs do not work on their client — therefore got a
+    /// dialog on their *first* command after every relog, while the spec and
+    /// `docs/operations.md` check 33 both say the preference always wins. Warming at join
+    /// gives the lookup a whole login's worth of time to land before the first command.
+    ///
+    /// `computeIfAbsent` rather than `put`, so a preference the player sets between joining
+    /// and this completing is never overwritten by the older stored value.
+    public void warm(UUID playerUuid, int protocolVersion) {
         int minDialogProtocol = config.minDialogProtocol();
-        scheduler.async(() -> cache.computeIfAbsent(uuid,
+        scheduler.async(() -> cache.computeIfAbsent(playerUuid,
                 id -> choose(protocolVersion, preferences.find(id), minDialogProtocol)));
-        return channels.get(choose(protocolVersion, Optional.empty(), minDialogProtocol));
     }
 
     /// Updates the cache immediately so the change is visible to the very next call on this

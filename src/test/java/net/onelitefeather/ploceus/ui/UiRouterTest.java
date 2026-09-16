@@ -98,6 +98,61 @@ class UiRouterTest {
         assertThat(preferences.findCalls.get()).isEqualTo(1);
     }
 
+    /// The defect `UiRouterListener.onJoin` closes: a stored preference was ignored on the
+    /// first command after every login, because the cache is emptied on quit and `resolve`
+    /// answers a miss from the protocol default. Warming at join means the very first
+    /// `resolve` already honours the preference.
+    @Test
+    void warmingOnJoinMakesTheFirstResolveHonourTheStoredPreference() {
+        NoopUi dialogUi = new NoopUi();
+        NoopUi chatUi = new NoopUi();
+        Map<UiChannel, ProjectUi> channels = Map.of(
+                UiChannel.DIALOG, dialogUi, UiChannel.INVENTORY, new NoopUi(), UiChannel.CHAT, chatUi);
+        UUID uuid = UUID.randomUUID();
+        Map<UUID, UiChannel> stored = new HashMap<>();
+        stored.put(uuid, UiChannel.CHAT);
+        RecordingPreferences preferences = new RecordingPreferences(stored);
+        CapturingScheduler scheduler = new CapturingScheduler();
+        UiRouter router = new UiRouter(channels, preferences, config(MIN_DIALOG_PROTOCOL), scheduler);
+
+        router.warm(uuid, 772);
+        assertThat(preferences.findCalls.get())
+                .as("warming must not block the join event on a database read").isZero();
+        scheduler.runCaptured();
+
+        assertThat(router.resolve(uuid, 772))
+                .as("a player who chose chat must not be handed a dialog on their first command")
+                .isSameAs(chatUi);
+    }
+
+    /// A preference set between the join warming being scheduled and it completing must not
+    /// be clobbered by the older stored value.
+    @Test
+    void aPreferenceSetWhileWarmingIsStillPendingWins() {
+        NoopUi inventoryUi = new NoopUi();
+        NoopUi chatUi = new NoopUi();
+        Map<UiChannel, ProjectUi> channels = Map.of(
+                UiChannel.DIALOG, new NoopUi(), UiChannel.INVENTORY, inventoryUi, UiChannel.CHAT, chatUi);
+        UUID uuid = UUID.randomUUID();
+        Map<UUID, UiChannel> stored = new HashMap<>();
+        stored.put(uuid, UiChannel.CHAT);
+        // Queues every task rather than keeping only the last one, so the warming lookup and
+        // the write-through of setPreference can both be pending at the same time.
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        SchedulerAdapter scheduler = new SchedulerAdapter(null) {
+            @Override public void async(Runnable work) { queued.add(work); }
+        };
+        UiRouter router = new UiRouter(channels, new RecordingPreferences(stored),
+                config(MIN_DIALOG_PROTOCOL), scheduler);
+
+        router.warm(uuid, 772);
+        router.setPreference(uuid, UiChannel.INVENTORY);
+        queued.forEach(Runnable::run);
+        scheduler.close();
+
+        assertThat(router.resolve(uuid, 772)).isSameAs(inventoryUi);
+    }
+
     /// End-to-end with a real `SchedulerAdapter` (its `async` is unaffected by a `null`
     /// plugin) rather than a same-thread double: proves the repository read genuinely
     /// happens off the thread that called `resolve`.

@@ -18,23 +18,51 @@ import java.util.concurrent.CompletableFuture;
 
 /// Every Multiverse call is wrapped here, and every shaded Vavr `Attempt`/`Try`/`Option`
 /// is turned into an `OperationResult` before it leaves this class.
+///
+/// ## Threading
+///
+/// **Every method here is safe to call from any thread**, and that is a property of this
+/// class rather than of its callers. Each one runs its Multiverse work through
+/// {@link SchedulerAdapter#onMainThread}: a call already on the main thread runs inline,
+/// and a call from the async executor parks its (virtual) thread until the next tick.
+///
+/// This used to be a documented expectation instead, and one caller broke it —
+/// `WorldService.rename` mirrors the display name onto the Multiverse alias before
+/// persisting, and its only caller runs that on a virtual thread, so `setAlias` mutated a
+/// Multiverse world off the main thread. Nothing noticed, because the only test for that
+/// path substitutes a `MultiverseAdapter` subclass.
+///
+/// The guarantee is now enforced rather than described: {@link #api()} is the single point
+/// at which this class reaches Multiverse at all, and it asserts the main thread. A method
+/// added later that forgets to hop throws immediately instead of corrupting world state.
 public class MultiverseAdapter {
 
-    private final MultiverseCoreApi api;
+    private final MultiverseCoreApi multiverseApi;
     private final SchedulerAdapter scheduler;
 
     public MultiverseAdapter(MultiverseCoreApi api, SchedulerAdapter scheduler) {
-        this.api = api;
+        this.multiverseApi = api;
         this.scheduler = scheduler;
     }
 
-    private WorldManager worldManager() {
-        return api.getWorldManager();
+    /// The only way into Multiverse from this class, and the reason the threading rule is
+    /// structural: everything below goes through here, and here asserts the thread.
+    private MultiverseCoreApi api() {
+        scheduler.requireMainThread("the Multiverse API");
+        return multiverseApi;
     }
 
-    /// Must be called on the main thread. The returned snapshots are immutable and safe
-    /// to hand to the async executor afterwards.
+    private WorldManager worldManager() {
+        return api().getWorldManager();
+    }
+
+    /// Safe from any thread (see the class Javadoc). The returned snapshots are immutable
+    /// and safe to hand to the async executor afterwards.
     public List<WorldSnapshot> snapshotAll() {
+        return scheduler.onMainThread(this::snapshotAllOnMainThread);
+    }
+
+    private List<WorldSnapshot> snapshotAllOnMainThread() {
         List<WorldSnapshot> snapshots = new ArrayList<>();
         for (MultiverseWorld world : worldManager().getWorlds()) {
             String name = world.getName();
@@ -46,15 +74,22 @@ public class MultiverseAdapter {
     }
 
     public int playerCount(String worldName) {
-        World world = org.bukkit.Bukkit.getWorld(worldName);
-        return world == null ? 0 : world.getPlayers().size();
+        return scheduler.onMainThread(() -> {
+            scheduler.requireMainThread("the Bukkit world registry");
+            World world = org.bukkit.Bukkit.getWorld(worldName);
+            return world == null ? 0 : world.getPlayers().size();
+        });
     }
 
     public boolean isLoaded(String worldName) {
-        return worldManager().isLoadedWorld(worldName);
+        return scheduler.onMainThread(() -> worldManager().isLoadedWorld(worldName));
     }
 
     public OperationResult<Void> load(String worldName) {
+        return scheduler.onMainThread(() -> loadOnMainThread(worldName));
+    }
+
+    private OperationResult<Void> loadOnMainThread(String worldName) {
         var attempt = worldManager().loadWorld(worldName);
         return attempt.isSuccess()
                 ? OperationResult.success(null)
@@ -62,6 +97,10 @@ public class MultiverseAdapter {
     }
 
     public OperationResult<Void> unload(String worldName) {
+        return scheduler.onMainThread(() -> unloadOnMainThread(worldName));
+    }
+
+    private OperationResult<Void> unloadOnMainThread(String worldName) {
         // Checked directly against the loaded set: getWorld(...) can be non-empty for an
         // unloaded world, and calling get() on the (then empty) getLoadedWorld(...) Option
         // would throw NoSuchElementException.
@@ -76,6 +115,10 @@ public class MultiverseAdapter {
     }
 
     public OperationResult<Void> setAutoLoad(String worldName, boolean autoLoad) {
+        return scheduler.onMainThread(() -> setAutoLoadOnMainThread(worldName, autoLoad));
+    }
+
+    private OperationResult<Void> setAutoLoadOnMainThread(String worldName, boolean autoLoad) {
         var world = worldManager().getWorld(worldName);
         if (world.isEmpty()) {
             return OperationResult.failure("world.unknown", worldName);
@@ -86,7 +129,15 @@ public class MultiverseAdapter {
                 : OperationResult.failure("world.autoload.failed", String.valueOf(result.getCause()));
     }
 
+    /// Mutates Multiverse, so it hops to the main thread itself. `WorldService.rename`
+    /// calls this from a virtual thread and must keep doing so *before* it persists
+    /// anything — mirroring the alias first is what makes the rename all-or-nothing, since
+    /// the alias is the retryable half. Only the thread was ever wrong there, not the order.
     public OperationResult<Void> setAlias(String worldName, String alias) {
+        return scheduler.onMainThread(() -> setAliasOnMainThread(worldName, alias));
+    }
+
+    private OperationResult<Void> setAliasOnMainThread(String worldName, String alias) {
         var world = worldManager().getWorld(worldName);
         if (world.isEmpty()) {
             return OperationResult.failure("world.unknown", worldName);
@@ -98,6 +149,10 @@ public class MultiverseAdapter {
     }
 
     public OperationResult<String> createWorld(WorldCreationRequest request) {
+        return scheduler.onMainThread(() -> createWorldOnMainThread(request));
+    }
+
+    private OperationResult<String> createWorldOnMainThread(WorldCreationRequest request) {
         World.Environment environment;
         try {
             environment = World.Environment.valueOf(request.environment());
@@ -138,8 +193,8 @@ public class MultiverseAdapter {
     public CompletableFuture<OperationResult<Void>> teleport(Player player, String worldName) {
         CompletableFuture<OperationResult<Void>> future = new CompletableFuture<>();
         scheduler.sync(() -> {
-            if (!isLoaded(worldName)) {
-                OperationResult<Void> loadResult = load(worldName);
+            if (!worldManager().isLoadedWorld(worldName)) {
+                OperationResult<Void> loadResult = loadOnMainThread(worldName);
                 if (!loadResult.isSuccess()) {
                     future.complete(loadResult);
                     return;
@@ -150,7 +205,7 @@ public class MultiverseAdapter {
                 future.complete(OperationResult.failure("world.unknown", worldName));
                 return;
             }
-            api.getSafetyTeleporter()
+            api().getSafetyTeleporter()
                     .to(world.getSpawnLocation())
                     .teleport(player)
                     .onSuccess(() -> future.complete(OperationResult.success(null)))
@@ -163,7 +218,11 @@ public class MultiverseAdapter {
     /// Populates the generator picker. VoidGen and anything else installed appears here by
     /// itself — nothing is hardcoded.
     public List<GeneratorOption> generators() {
-        GeneratorProvider provider = api.getGeneratorProvider();
+        return scheduler.onMainThread(this::generatorsOnMainThread);
+    }
+
+    private List<GeneratorOption> generatorsOnMainThread() {
+        GeneratorProvider provider = api().getGeneratorProvider();
         List<GeneratorOption> options = new ArrayList<>();
         provider.getRegisteredGeneratorPlugins().forEach(plugin -> {
             String name = plugin.getPluginName();

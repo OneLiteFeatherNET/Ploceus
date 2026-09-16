@@ -27,6 +27,47 @@ public class SchedulerAdapter implements AutoCloseable {
         return CompletableFuture.supplyAsync(work, executor);
     }
 
+    /// Whether the caller is already on the server's main thread.
+    public boolean isMainThread() {
+        return plugin.getServer().isPrimaryThread();
+    }
+
+    /// Runs `work` on the main thread and hands back what it returned, so a Bukkit or
+    /// Multiverse call can be made from anywhere without the caller having to restructure
+    /// itself around a callback.
+    ///
+    /// On the main thread this is a plain call — {@link #sync} runs inline there, so there
+    /// is no round trip and no chance of deadlock. Off it, the calling thread blocks until
+    /// the next tick; every off-main caller in this project is a virtual thread from
+    /// {@link #async}, where blocking is cheap and parking until the next tick is the point.
+    /// Whatever `work` throws is rethrown to the caller rather than swallowed on the main
+    /// thread.
+    public <T> T onMainThread(Supplier<T> work) {
+        if (isMainThread()) {
+            return work.get();
+        }
+        CompletableFuture<T> result = new CompletableFuture<>();
+        sync(() -> {
+            try {
+                result.complete(work.get());
+            } catch (Throwable throwable) {
+                result.completeExceptionally(throwable);
+            }
+        });
+        return result.join();
+    }
+
+    /// Fails loudly instead of corrupting server state from the wrong thread. Used at the
+    /// single point where {@link net.onelitefeather.ploceus.platform.MultiverseAdapter}
+    /// reaches the Multiverse API, so a method that forgets {@link #onMainThread} throws
+    /// rather than silently mutating a world off-thread.
+    public void requireMainThread(String what) {
+        if (!isMainThread()) {
+            throw new IllegalStateException(
+                    what + " must only be touched from the main thread, but this is " + Thread.currentThread());
+        }
+    }
+
     /// Hops back onto the main thread. Every Bukkit call must go through here.
     public void sync(Runnable work) {
         if (plugin.getServer().isPrimaryThread()) {

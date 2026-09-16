@@ -234,6 +234,13 @@ class WorldCreationServiceTest {
 
             assertThat(result.isSuccess()).isFalse();
             assertThat(((OperationResult.Failure<?>) result).messageKey()).isEqualTo("world.create.failed");
+            // `world.create.failed` renders <detail> to the player. This was the only path in
+            // the plugin that could show arbitrary internal text — the exception's own
+            // message — so the detail must be the world name, and the exception must stay in
+            // the log where it is already recorded.
+            assertThat(((OperationResult.Failure<?>) result).detail())
+                    .isEqualTo("throws-world")
+                    .doesNotContain("boom");
             assertThat(storage).doesNotContainKey(PloceusKey.of("throws-world"));
         } finally {
             executor.shutdownNow();

@@ -153,7 +153,13 @@ public class WorldCreationService {
     }
 
     /// Schedules the rollback off the main thread, same as every other rollback/audit write
-    /// in this class. If the async executor itself refuses the work (e.g. the plugin is
+    /// in this class.
+    ///
+    /// The failure the player sees names the world, not `cause.getMessage()`: this was the
+    /// only path in the plugin that could put arbitrary internal text — a Hibernate
+    /// constraint message, a Multiverse stack trace's top line — in front of a player, and
+    /// the exception is already logged in full at the call site above.
+    /// If the async executor itself refuses the work (e.g. the plugin is
     /// shutting down), the future still must not hang forever, so it is completed right here
     /// instead — an orphaned row at that point is recoverable by hand; a stuck dialog and a
     /// `CompletableFuture` that never completes are not.
@@ -161,11 +167,11 @@ public class WorldCreationService {
                                   Throwable cause) {
         try {
             scheduler.async(() -> rollbackAndFail(world, future,
-                    "world.create.failed", String.valueOf(cause.getMessage())));
+                    "world.create.failed", world.getWorldName()));
         } catch (Throwable dispatchFailure) {
             LOGGER.log(Level.SEVERE, "Could not schedule rollback for '" + world.getWorldName()
                     + "'; the reserved row may be orphaned", dispatchFailure);
-            future.complete(OperationResult.failure("world.create.failed", String.valueOf(cause.getMessage())));
+            future.complete(OperationResult.failure("world.create.failed", world.getWorldName()));
         }
     }
 

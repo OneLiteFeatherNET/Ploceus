@@ -15,6 +15,8 @@ import org.mvplugins.multiverse.core.world.options.UnloadWorldOptions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /// Every Multiverse call is wrapped here, and every shaded Vavr `Attempt`/`Try`/`Option`
 /// is turned into an `OperationResult` before it leaves this class.
@@ -36,6 +38,8 @@ import java.util.concurrent.CompletableFuture;
 /// at which this class reaches Multiverse at all, and it asserts the main thread. A method
 /// added later that forgets to hop throws immediately instead of corrupting world state.
 public class MultiverseAdapter {
+
+    private static final Logger LOGGER = Logger.getLogger(MultiverseAdapter.class.getName());
 
     private final MultiverseCoreApi multiverseApi;
     private final SchedulerAdapter scheduler;
@@ -124,9 +128,13 @@ public class MultiverseAdapter {
             return OperationResult.failure("world.unknown", worldName);
         }
         var result = world.get().setAutoLoad(autoLoad);
-        return result.isSuccess()
-                ? OperationResult.success(null)
-                : OperationResult.failure("world.autoload.failed", String.valueOf(result.getCause()));
+        if (result.isSuccess()) {
+            return OperationResult.success(null);
+        }
+        // Vavr's getCause() is a Throwable. OperationResult.detail is rendered to the
+        // player, so the exception goes to the log and the player gets the world name.
+        LOGGER.log(Level.WARNING, "Could not change auto-load for '" + worldName + "'", result.getCause());
+        return OperationResult.failure("world.autoload.failed", worldName);
     }
 
     /// Mutates Multiverse, so it hops to the main thread itself. `WorldService.rename`
@@ -143,9 +151,11 @@ public class MultiverseAdapter {
             return OperationResult.failure("world.unknown", worldName);
         }
         var result = world.get().setAlias(alias);
-        return result.isSuccess()
-                ? OperationResult.success(null)
-                : OperationResult.failure("world.alias.failed", String.valueOf(result.getCause()));
+        if (result.isSuccess()) {
+            return OperationResult.success(null);
+        }
+        LOGGER.log(Level.WARNING, "Could not set the Multiverse alias of '" + worldName + "'", result.getCause());
+        return OperationResult.failure("world.alias.failed", worldName);
     }
 
     public OperationResult<String> createWorld(WorldCreationRequest request) {

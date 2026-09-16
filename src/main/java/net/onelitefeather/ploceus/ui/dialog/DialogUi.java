@@ -104,7 +104,7 @@ public class DialogUi implements ProjectUi {
                     Component.text(project.getDisplayName()),
                     Messages.get("project.entry",
                             placeholder("name", project.getKey().asString()),
-                            placeholder("worlds", String.valueOf(project.getWorlds().size())),
+                            placeholder("worlds", String.valueOf(project.getWorldCount())),
                             Messages.component("tags", tagList(project))),
                     () -> openProjectDetail(player, project.getKey()));
         }
@@ -173,7 +173,7 @@ public class DialogUi implements ProjectUi {
                 Component.text(project.getDisplayName()),
                 Messages.get("project.entry",
                         placeholder("name", project.getKey().asString()),
-                        placeholder("worlds", String.valueOf(project.getWorlds().size())),
+                        placeholder("worlds", String.valueOf(project.getWorldCount())),
                         Messages.component("tags", tagList(project))),
                 () -> openProjectDetail(player, project.getKey())));
         buttons.addAll(worldButtons(player, foundWorlds.items()));

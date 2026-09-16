@@ -59,6 +59,11 @@ class H2RepositoryIntegrationTest {
     }
 
     @Test
+    void aProjectCarriesItsWorldCountAfterTheSessionClosed() {
+        RepositoryIntegrationAssertions.aProjectCarriesItsWorldCountAfterTheSessionClosed(projects, worlds);
+    }
+
+    @Test
     void auditEntriesComeBackNewestFirst() {
         RepositoryIntegrationAssertions.auditEntriesComeBackNewestFirst(audit);
     }

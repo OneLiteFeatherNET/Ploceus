@@ -70,6 +70,11 @@ class PostgresRepositoryIntegrationTest {
     }
 
     @Test
+    void aProjectCarriesItsWorldCountAfterTheSessionClosed() {
+        RepositoryIntegrationAssertions.aProjectCarriesItsWorldCountAfterTheSessionClosed(projects, worlds);
+    }
+
+    @Test
     void auditEntriesComeBackNewestFirst() {
         RepositoryIntegrationAssertions.auditEntriesComeBackNewestFirst(audit);
     }

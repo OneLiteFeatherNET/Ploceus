@@ -60,6 +60,38 @@ final class RepositoryIntegrationAssertions {
                 .isCloseTo(now, within(1, java.time.temporal.ChronoUnit.SECONDS));
     }
 
+    /// The regression test for the `LazyInitializationException` that took out
+    /// `/ploceus project list` and search in two of three channels. `Project` used to carry
+    /// a LAZY `@OneToMany` collection of worlds, and the UI called `getWorlds().size()` on
+    /// an entity whose session had already been closed by `fromSession`. Reading the count
+    /// here — after the repository returned and the session is gone — is exactly the access
+    /// that used to throw.
+    static void aProjectCarriesItsWorldCountAfterTheSessionClosed(ProjectRepository projects,
+                                                                  WorldRepository worlds) {
+        Project project = new Project(PloceusKey.of("counted"), "Counted");
+        projects.save(project);
+        Project stored = projects.findByKey(PloceusKey.of("counted")).orElseThrow();
+        ProjectWorld first = new ProjectWorld(PloceusKey.fromWorldName("counted-one"), "counted-one");
+        first.setProject(stored);
+        worlds.save(first);
+        ProjectWorld second = new ProjectWorld(PloceusKey.fromWorldName("counted-two"), "counted-two");
+        second.setProject(stored);
+        worlds.save(second);
+
+        assertThat(projects.findByKey(PloceusKey.of("counted")).orElseThrow().getWorldCount())
+                .isEqualTo(2);
+        assertThat(projects.findAll())
+                .filteredOn(p -> p.getKey().value().equals("counted"))
+                .first()
+                .extracting(Project::getWorldCount)
+                .isEqualTo(2);
+        assertThat(projects.search("Counted"))
+                .filteredOn(p -> p.getKey().value().equals("counted"))
+                .first()
+                .extracting(Project::getWorldCount)
+                .isEqualTo(2);
+    }
+
     static void auditEntriesComeBackNewestFirst(AuditRepository audit) {
         PloceusKey target = PloceusKey.of("audited");
         audit.append(new AuditEntry(AuditEntry.TargetType.PROJECT, target, UUID.randomUUID(),

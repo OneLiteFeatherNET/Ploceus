@@ -34,8 +34,17 @@ public class Project extends AuditableEntity implements Taggable, Authored, Desc
     @Embedded
     private WorldDefaults worldDefaults;
 
-    @OneToMany(mappedBy = "project")
-    private List<ProjectWorld> worlds = new ArrayList<>();
+    /// How many worlds belong to this project. Deliberately **not** a mapped
+    /// `@OneToMany` association: every repository read hands the caller a detached entity
+    /// (`SessionFactory.fromSession` closes the session before returning), so a lazy
+    /// collection here threw `LazyInitializationException` in every UI channel that only
+    /// wanted the size. A projection populated by `ProjectRepository` costs one grouped
+    /// count query for a whole page instead of loading every world to display a number.
+    ///
+    /// Zero on an instance that was never read back through the repository — a freshly
+    /// constructed project has no worlds yet, which is the same answer.
+    @Transient
+    private int worldCount;
 
     protected Project() { }
 
@@ -66,5 +75,6 @@ public class Project extends AuditableEntity implements Taggable, Authored, Desc
     public WorldDefaults getWorldDefaults() { return worldDefaults; }
     public void setWorldDefaults(WorldDefaults worldDefaults) { this.worldDefaults = worldDefaults; }
 
-    public List<ProjectWorld> getWorlds() { return Collections.unmodifiableList(worlds); }
+    public int getWorldCount() { return worldCount; }
+    public void setWorldCount(int worldCount) { this.worldCount = worldCount; }
 }

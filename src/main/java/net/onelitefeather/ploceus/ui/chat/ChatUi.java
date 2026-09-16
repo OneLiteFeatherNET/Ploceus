@@ -42,7 +42,7 @@ public class ChatUi implements ProjectUi {
         for (Project project : page.items()) {
             player.sendMessage(Messages.get("project.entry",
                             placeholder("name", project.getDisplayName()),
-                            placeholder("worlds", String.valueOf(project.getWorlds().size())),
+                            placeholder("worlds", String.valueOf(project.getWorldCount())),
                             Messages.component("tags", tagList(project)))
                     .clickEvent(ClickEvent.runCommand(
                             "/ploceus project info " + project.getKey().value())));
@@ -90,7 +90,7 @@ public class ChatUi implements ProjectUi {
         player.sendMessage(Messages.chat("search.results", placeholder("term", term)));
         projects.items().forEach(project -> player.sendMessage(Messages.get("project.entry",
                         placeholder("name", project.getDisplayName()),
-                        placeholder("worlds", String.valueOf(project.getWorlds().size())),
+                        placeholder("worlds", String.valueOf(project.getWorldCount())),
                         Messages.component("tags", tagList(project)))
                 .clickEvent(ClickEvent.runCommand("/ploceus project info " + project.getKey().value()))));
         worlds.items().forEach(world -> player.sendMessage(worldLine(world)));

@@ -60,8 +60,10 @@ public class CommandRegistrar {
 
         // One key parser serves both project and world keys: suggestions are the union of
         // both pools, and PloceusKey itself carries no notion of "project key" vs "world key".
-        manager.parserRegistry().registerParser(
-                ParserDescriptor.of(new PloceusKeyParser(this::allKeys), PloceusKey.class));
+        // Behind a short-TTL cache, because Cloud asks for suggestions once per keystroke and
+        // `allKeys` is two unbounded selects - see CachedKeys.
+        manager.parserRegistry().registerParser(ParserDescriptor.of(
+                new PloceusKeyParser(new CachedKeys(this::allKeys)), PloceusKey.class));
         manager.parserRegistry().registerParser(EnumParser.enumParser(UiChannel.class));
 
         new AnnotationParser<>(manager, CommandSender.class).parse(commands);
@@ -111,6 +113,8 @@ public class CommandRegistrar {
         }
     }
 
+    /// Two full table scans. Only ever called through {@link CachedKeys}, never per
+    /// keystroke.
     private List<PloceusKey> allKeys() {
         return Stream.concat(
                 projects.all().stream().map(project -> project.getKey()),

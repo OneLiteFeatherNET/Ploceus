@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 class VisitTrackerTest {
 
@@ -58,6 +59,38 @@ class VisitTrackerTest {
         tracker.recordVisit("a", Instant.now());
         tracker.flush();
         assertThat(tracker.pendingCount()).isZero();
+    }
+
+    /// On shutdown the database may already be gone, and `close()` is called from
+    /// `WorldLifecycleService.close()`, which `PloceusPlugin.onDisable` runs *before* it
+    /// closes the session factory and the connection pool. A propagating exception here
+    /// therefore leaked both, so the final flush must fail quietly.
+    @Test
+    void closeSurvivesAFlushAgainstADatabaseThatIsAlreadyGone() {
+        var repository = new net.onelitefeather.ploceus.persistence.WorldRepository(null) {
+            @Override public Optional<ProjectWorld> findByWorldName(String name) {
+                throw new IllegalStateException("pool has already been closed");
+            }
+        };
+        VisitTracker tracker = new VisitTracker(repository, null);
+        tracker.recordVisit("elytrarace-desert", Instant.now());
+
+        assertThatCode(tracker::close).doesNotThrowAnyException();
+    }
+
+    /// The same failure must not stop the lifecycle service from finishing its own shutdown.
+    @Test
+    void theLifecycleServiceStillClosesWhenTheFinalFlushFails() {
+        var repository = new net.onelitefeather.ploceus.persistence.WorldRepository(null) {
+            @Override public Optional<ProjectWorld> findByWorldName(String name) {
+                throw new IllegalStateException("pool has already been closed");
+            }
+        };
+        VisitTracker tracker = new VisitTracker(repository, null);
+        tracker.recordVisit("elytrarace-desert", Instant.now());
+        var lifecycle = new WorldLifecycleService(null, repository, null, tracker, null, null);
+
+        assertThatCode(lifecycle::close).doesNotThrowAnyException();
     }
 
     private VisitTracker trackerWriting(List<Map<PloceusKey, Instant>> sink,

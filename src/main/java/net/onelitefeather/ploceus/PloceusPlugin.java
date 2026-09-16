@@ -78,21 +78,46 @@ public final class PloceusPlugin extends JavaPlugin {
         });
     }
 
+    /// Closes everything this plugin opened, in reverse order of opening, and keeps going
+    /// when one of them fails.
+    ///
+    /// The order matters — the lifecycle service's final visit flush needs the pool to still
+    /// be open — but so does the independence: a failure in the first step used to propagate
+    /// straight out of `onDisable`, skipping `sessionFactory.close()` and
+    /// `dataSource.close()` entirely and leaking the connection pool for the rest of the
+    /// server's life.
     @Override
     public void onDisable() {
-        if (injector != null) {
-            injector.getInstance(WorldLifecycleService.class).close();
-        }
-        if (scheduler != null) {
-            scheduler.close();
-        }
-        if (sessionFactory != null) {
-            sessionFactory.close();
-        }
-        if (dataSource != null) {
-            dataSource.close();
-        }
+        closeQuietly("the world lifecycle service", () -> {
+            if (injector != null) {
+                injector.getInstance(WorldLifecycleService.class).close();
+            }
+        });
+        closeQuietly("the scheduler", () -> {
+            if (scheduler != null) {
+                scheduler.close();
+            }
+        });
+        closeQuietly("the Hibernate session factory", () -> {
+            if (sessionFactory != null) {
+                sessionFactory.close();
+            }
+        });
+        closeQuietly("the connection pool", () -> {
+            if (dataSource != null) {
+                dataSource.close();
+            }
+        });
         getLogger().info("Ploceus disabled");
+    }
+
+    private void closeQuietly(String what, Runnable close) {
+        try {
+            close.run();
+        } catch (Throwable throwable) {
+            getLogger().log(java.util.logging.Level.SEVERE,
+                    "Failed to close " + what + "; continuing shutdown", throwable);
+        }
     }
 
     public Injector injector() {

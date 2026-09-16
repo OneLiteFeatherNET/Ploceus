@@ -8,6 +8,8 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /// Buffers world visits in memory and writes them in one batch per interval.
 ///
@@ -18,6 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /// Ploceus is therefore dropped at flush time rather than at record time; a world imported
 /// between the visit and the flush still gets its timestamp instead of losing it.
 public class VisitTracker implements AutoCloseable {
+
+    private static final Logger LOGGER = Logger.getLogger(VisitTracker.class.getName());
 
     private final WorldRepository worlds;
     private final SchedulerAdapter scheduler;
@@ -62,6 +66,14 @@ public class VisitTracker implements AutoCloseable {
     /// Flushes synchronously and deliberately: this runs while the scheduler is being torn
     /// down, so handing the final flush to the (about-to-close) async executor would drop
     /// it instead of writing it.
+    ///
+    /// The flush is allowed to fail. On shutdown the database may already be gone — a
+    /// PostgreSQL server stopping alongside the Minecraft server, a pool closed by another
+    /// shutdown hook — and this is called from `WorldLifecycleService.close`, which
+    /// `PloceusPlugin.onDisable` calls *before* it closes the session factory and the
+    /// connection pool. A propagating exception here therefore leaked both. Losing the last
+    /// few `lastVisitedAt` timestamps only costs the unload reaper one extra idle interval;
+    /// leaking the pool costs a hung shutdown.
     @Override
     public void close() {
         if (task != null) {
@@ -71,6 +83,11 @@ public class VisitTracker implements AutoCloseable {
                 // cancelling a Bukkit task cannot fail meaningfully
             }
         }
-        flush();
+        try {
+            flush();
+        } catch (RuntimeException exception) {
+            LOGGER.log(Level.WARNING, "The final visit flush failed; up to "
+                    + pendingCount() + " world visit timestamp(s) were not written", exception);
+        }
     }
 }

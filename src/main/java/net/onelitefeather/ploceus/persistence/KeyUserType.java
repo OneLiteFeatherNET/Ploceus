@@ -14,7 +14,7 @@ import java.util.Objects;
 /// Hibernate basic-type mapping for {@link PloceusKey}, registered globally in
 /// {@link HibernateBootstrap} via {@code Configuration#registerTypeOverride}.
 ///
-/// A JPA {@link jakarta.persistence.AttributeConverter} such as {@link KeyAttributeConverter}
+/// A JPA {@link jakarta.persistence.AttributeConverter}
 /// cannot be applied to identifier attributes - the JPA specification excludes {@code @Id}
 /// from auto-apply conversion, and Hibernate enforces that exclusion even for globally
 /// registered converters. {@code PloceusKey} is nevertheless the {@code @Id} type of

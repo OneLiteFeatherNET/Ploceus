@@ -34,6 +34,18 @@ dependencies {
     testImplementation(libs.testcontainers.junit)
 }
 
+/// `paper-plugin.yml` carries `version: '${version}'`; nothing substituted it, so the jar
+/// shipped a literal `${version}` to Paper. Replaced by hand rather than with `expand(...)`,
+/// which runs the whole file through Groovy's template engine and would choke on any other
+/// `$` or backslash a future edit introduces.
+tasks.processResources {
+    val pluginVersion = project.version.toString()
+    inputs.property("pluginVersion", pluginVersion)
+    filesMatching("paper-plugin.yml") {
+        filter { line -> line.replace("\${version}", pluginVersion) }
+    }
+}
+
 tasks.withType<JavaCompile> {
     options.release.set(25)
     options.encoding = "UTF-8"

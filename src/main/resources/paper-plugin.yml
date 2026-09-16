@@ -2,6 +2,10 @@ name: Ploceus
 version: '${version}'
 main: net.onelitefeather.ploceus.PloceusPlugin
 bootstrapper: net.onelitefeather.ploceus.PloceusBootstrap
+# Same class as the bootstrapper on purpose; without this key Paper never calls
+# PloceusBootstrap.classloader(...) and Hibernate/HikariCP/Liquibase/H2/PostgreSQL are
+# missing from the runtime classpath. See PloceusBootstrap's Javadoc.
+loader: net.onelitefeather.ploceus.PloceusBootstrap
 api-version: '26.2'
 description: 'Project and world management on top of Multiverse'
 authors: [ OneLiteFeather ]

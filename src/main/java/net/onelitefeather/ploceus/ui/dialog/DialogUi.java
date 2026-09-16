@@ -351,8 +351,17 @@ public class DialogUi implements ProjectUi {
                     textOf(view, "generator"), "", textOf(view, "environment"),
                     Boolean.TRUE.equals(view.getBoolean("structures")), seed);
             Actor actor = new Actor(player.getUniqueId(), player.getName());
-            // World creation is a Bukkit operation: main thread.
-            scheduler.sync(() -> feedback(player, creation.create(project, form, actor), "world.created"));
+            // `creation.create` crosses threads on its own (main thread only for the
+            // Multiverse calls) and completes on whichever thread its last phase runs on —
+            // same contract as `MultiverseAdapter.teleport` — so the continuation still needs
+            // its own hop back to main before touching the player.
+            creation.create(project, form, actor).thenAccept(result -> scheduler.sync(() -> {
+                feedback(player, result.map(WorldCreationService.CreationOutcome::world), "world.created");
+                if (result instanceof OperationResult.Success<WorldCreationService.CreationOutcome> success) {
+                    success.value().warnings().forEach(warning -> player.sendMessage(
+                            Messages.chat(warning.messageKey(), placeholder("detail", warning.detail()))));
+                }
+            }));
         }));
         addIfPermitted(buttons, player, "ploceus.world.create", Messages.get("button.reroll"),
                 () -> rerollWorldName(player, project, generators));

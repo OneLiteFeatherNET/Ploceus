@@ -40,6 +40,7 @@ public final class Messages {
             Map.entry("world.renamed", "<green>Display name changed to <white><name></white>.</green>"),
             Map.entry("world.settingsUpdated", "<green>World settings updated.</green>"),
             Map.entry("world.unknown", "<red>No world with the key <white><detail></white>.</red>"),
+            Map.entry("world.exists", "<red>A world with the key <white><detail></white> already exists.</red>"),
             Map.entry("world.load.failed", "<red>Could not load the world: <white><detail></white></red>"),
             Map.entry("world.unload.failed", "<red>Could not unload the world: <white><detail></white></red>"),
             Map.entry("world.create.failed", "<red>Could not create the world: <white><detail></white></red>"),

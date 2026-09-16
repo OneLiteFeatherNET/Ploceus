@@ -210,9 +210,17 @@ class DialogPermissionsTest {
             }
         };
 
+        // Runs every hop in-line so the test stays deterministic without a real scheduler,
+        // the same double `WorldLifecycleServiceTest` uses for the same reason.
+        net.onelitefeather.ploceus.platform.SchedulerAdapter scheduler =
+                new net.onelitefeather.ploceus.platform.SchedulerAdapter(null) {
+                    @Override public void async(Runnable work) { work.run(); }
+                    @Override public void sync(Runnable work) { work.run(); }
+                };
+
         WorldDefaults configDefaults = new WorldDefaults("", "", "NORMAL", false, "");
         return new RecordingWorldCreationService(multiverse, worldRepository,
-                new AuditService(auditRepository), configDefaults);
+                new AuditService(auditRepository), configDefaults, scheduler);
     }
 
     /// Overrides only `create`, the method the test cares about; it still fully delegates to
@@ -226,14 +234,15 @@ class DialogPermissionsTest {
         final WorldRepository worlds;
 
         RecordingWorldCreationService(MultiverseAdapter multiverse, WorldRepository worlds,
-                                      AuditService audit, WorldDefaults configDefaults) {
-            super(multiverse, worlds, audit, configDefaults);
+                                      AuditService audit, WorldDefaults configDefaults,
+                                      net.onelitefeather.ploceus.platform.SchedulerAdapter scheduler) {
+            super(multiverse, worlds, audit, configDefaults, scheduler);
             this.worlds = worlds;
         }
 
         @Override
-        public net.onelitefeather.ploceus.domain.OperationResult<ProjectWorld> create(
-                Project project, WorldCreationForm form, Actor actor) {
+        public java.util.concurrent.CompletableFuture<net.onelitefeather.ploceus.domain.OperationResult<CreationOutcome>>
+                create(Project project, WorldCreationForm form, Actor actor) {
             createCalled = true;
             return super.create(project, form, actor);
         }

@@ -114,8 +114,8 @@ public class PloceusModule extends AbstractModule {
 
     @Provides @Singleton
     WorldCreationService worldCreation(MultiverseAdapter multiverse, WorldRepository worlds,
-                                       AuditService audit, PloceusConfig config) {
-        return new WorldCreationService(multiverse, worlds, audit, config.worldDefaults());
+                                       AuditService audit, PloceusConfig config, SchedulerAdapter scheduler) {
+        return new WorldCreationService(multiverse, worlds, audit, config.worldDefaults(), scheduler);
     }
 
     @Provides @Singleton

@@ -20,6 +20,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -171,6 +175,69 @@ class WorldCreationServiceTest {
                 .containsExactly("world.alias.failed");
         assertThat(fixture.storage).containsKey(PloceusKey.of("warned-world"));
         assertThat(fixture.audit).anyMatch(entry -> entry.getAction() == AuditAction.WORLD_UPDATED);
+    }
+
+    /// Reproduces the exact regression fix round 2 closed: `multiverse.createWorld` throwing
+    /// instead of returning a `Failure`. Uses a *real* background-thread executor for
+    /// `async` (unlike `Fixture`'s inline double) so `create(...)` returns the still-pending
+    /// future immediately, the same as production — with the inline double, a swallowed
+    /// exception would abort `create(...)` itself synchronously instead of reproducing the
+    /// actual bug, which is a future that never completes because the exception is thrown on
+    /// a thread the caller isn't waiting on. `future.get(2, TimeUnit.SECONDS)` is a bounded
+    /// wait for exactly that reason: without the sync-phase `try/catch`, this future never
+    /// completes, and this test must time out and fail rather than hang the whole suite.
+    @Test
+    void aThrownExceptionDuringCreateWorldStillCompletesTheFutureAndRollsBackTheRow() throws Exception {
+        Map<PloceusKey, ProjectWorld> storage = new LinkedHashMap<>();
+        List<AuditEntry> auditEntries = new ArrayList<>();
+
+        MultiverseAdapter multiverse = new MultiverseAdapter(null, null) {
+            @Override public OperationResult<String> createWorld(WorldCreationRequest request) {
+                throw new IllegalStateException("boom");
+            }
+        };
+        WorldRepository worlds = new WorldRepository(null) {
+            @Override public Optional<ProjectWorld> findByKey(PloceusKey key) {
+                return Optional.ofNullable(storage.get(key));
+            }
+            @Override public Optional<ProjectWorld> findByWorldName(String worldName) {
+                return storage.values().stream()
+                        .filter(world -> world.getWorldName().equals(worldName))
+                        .findFirst();
+            }
+            @Override public void save(ProjectWorld world) { storage.put(world.getKey(), world); }
+            @Override public void delete(ProjectWorld world) { storage.remove(world.getKey()); }
+        };
+        AuditRepository auditRepository = new AuditRepository(null) {
+            @Override public void append(AuditEntry entry) { auditEntries.add(entry); }
+            @Override public List<AuditEntry> findByTarget(PloceusKey t, int limit, int offset) {
+                return List.copyOf(auditEntries);
+            }
+        };
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            SchedulerAdapter scheduler = new SchedulerAdapter(null) {
+                @Override public void async(Runnable work) { executor.execute(work); }
+                @Override public void sync(Runnable work) { work.run(); }
+            };
+            WorldCreationService service = new WorldCreationService(multiverse, worlds,
+                    new AuditService(auditRepository), new WorldDefaults("", "", "NORMAL", false, ""), scheduler);
+            Project project = new Project(PloceusKey.of("p"), "P");
+            var form = new WorldCreationService.WorldCreationForm(
+                    "throws-world", "Throws", "", "", "NORMAL", false, null);
+
+            CompletableFuture<OperationResult<WorldCreationService.CreationOutcome>> future =
+                    service.create(project, form, Actor.CONSOLE);
+
+            OperationResult<WorldCreationService.CreationOutcome> result = future.get(2, TimeUnit.SECONDS);
+
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(((OperationResult.Failure<?>) result).messageKey()).isEqualTo("world.create.failed");
+            assertThat(storage).doesNotContainKey(PloceusKey.of("throws-world"));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     /// Minimal in-memory wiring for `WorldCreationService`, in the same style as

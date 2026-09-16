@@ -62,8 +62,8 @@ The table below is read directly off `@Permission` annotations in
 |---|---|
 | `ploceus.use` | open `/ploceus` (the main menu) and switch UI channel with `/ploceus ui <channel>` |
 | `ploceus.project.list` | list projects (`project list`) and view a project's detail screen, including its worlds (`project info`) |
-| `ploceus.project.create` | open the create-project form and create projects |
-| `ploceus.project.edit` | rename projects (`project rename`) |
+| `ploceus.project.create` | open the create-project form (which also captures description and initial tags on the dialog channel) and create projects |
+| `ploceus.project.edit` | rename projects via `project rename`; on the dialog channel only, the same node also gates changing a project's description and status, since `DialogUi.editProjectForm` calls `ProjectService.describe`/`setStatus` directly rather than through a command |
 | `ploceus.project.delete` | delete projects (`project delete ... --confirm`) |
 | `ploceus.world.list` | list unassigned worlds (`world list-unassigned`) |
 | `ploceus.world.create` | open the create-world form and create worlds |
@@ -76,10 +76,25 @@ The table below is read directly off `@Permission` annotations in
 Authors recorded on a project are credits only and grant nothing — access control stays
 entirely with the permission nodes above (see the design doc's non-goals).
 
-`ProjectService.describe` and `WorldService.describe` (setting a free-text description)
-exist at the service layer but have no command wired to them yet — there is currently no
-way to set a description from any UI channel or command. This is a real gap in the command
-surface, not a documentation omission; flag it if description-setting is expected to work.
+**Setting a description — what actually works:**
+
+- **Project descriptions are settable, but only through the dialog channel.**
+  `DialogUi.createProjectForm` and `editProjectForm` both include a description input wired
+  directly to `ProjectService.describe(...)` (`editProjectForm` also sets status the same
+  way), bypassing the command layer entirely.
+- **No command accepts a description argument, for projects or worlds.** `project create`
+  and `project rename` are the only project-editing commands, and neither takes one; the
+  same is true for every `world *` command.
+- **The inventory and chat channels cannot set a project description at all.** Both fall
+  back to suggesting `/ploceus project create` / `/ploceus project rename` for these
+  screens, and those commands have nowhere to put a description. In practice: a player on
+  an older client who falls back to the inventory channel, or anyone who has explicitly
+  picked inventory or chat with `/ploceus ui`, has no route to setting a project
+  description — only dialog offers one.
+- **World descriptions have no route anywhere.** `WorldService.describe` exists but has no
+  caller in `ui/` or `command/` on any channel — not dialog, not inventory, not chat, and no
+  command. This is a real gap in the current feature surface, not a documentation omission;
+  flag it if world description-setting is expected to work.
 
 Both the dialog and inventory channels re-check the relevant permission a second time, at
 the moment a button/item is actually clicked, via the shared `ui.UiPermissions` helper —

@@ -6,6 +6,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.onelitefeather.ploceus.ui.Messages;
 import net.onelitefeather.ploceus.ui.Page;
+import net.onelitefeather.ploceus.ui.UiPermissions;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -20,7 +21,7 @@ import java.util.function.IntConsumer;
 ///    `ActionButton` is built at all, so there is no registered callback for a forged
 ///    client to replay from this render.
 /// 2. **Execute-time**: if `player` does have `permission`, the returned button's action is
-///    wrapped in {@link DialogPermissions#guarded}, which re-checks the same permission the
+///    wrapped in {@link UiPermissions#guarded}, which re-checks the same permission the
 ///    instant the callback actually fires. This is what still matters even though the
 ///    button was legitimately rendered: dialog buttons are client-driven custom-click
 ///    payloads, and a previously-granted callback id can outlive the permission that
@@ -73,14 +74,14 @@ public final class DialogCallbacks {
     /// The only way to build a dialog button. Returns `null` when `player` lacks
     /// `permission` (render-time half); otherwise returns a button whose action is
     /// re-checked against the same permission the instant it fires (execute-time half, via
-    /// {@link DialogPermissions#guarded}). `onDenied` runs only on the execute-time path —
+    /// {@link UiPermissions#guarded}). `onDenied` runs only on the execute-time path —
     /// the render-time path has nothing to show a denial for, since nothing was rendered.
     public static ActionButton button(Player player, String permission, Component label, Component tooltip,
                                       Runnable onDenied, Runnable action) {
         if (!player.hasPermission(permission)) {
             return null;
         }
-        Runnable guardedAction = DialogPermissions.guarded(player::hasPermission, permission, onDenied, action);
+        Runnable guardedAction = UiPermissions.guarded(player::hasPermission, permission, onDenied, action);
         ActionButton.Builder builder = ActionButton.builder(label)
                 .action(DialogAction.customClick(
                         (view, audience) -> guardedAction.run(),

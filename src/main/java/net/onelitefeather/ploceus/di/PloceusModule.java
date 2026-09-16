@@ -14,6 +14,7 @@ import net.onelitefeather.ploceus.ui.UiChannel;
 import net.onelitefeather.ploceus.ui.UiPreferences;
 import net.onelitefeather.ploceus.ui.chat.ChatUi;
 import net.onelitefeather.ploceus.ui.dialog.DialogUi;
+import net.onelitefeather.ploceus.ui.inventory.InventoryUi;
 import org.bukkit.plugin.Plugin;
 import org.hibernate.SessionFactory;
 import org.mvplugins.multiverse.core.MultiverseCoreApi;
@@ -44,17 +45,15 @@ public class PloceusModule extends AbstractModule {
         bind(MultiverseCoreApi.class).toInstance(multiverseApi);
     }
 
-    /// UI channels: dialog now has a real implementation (Tasks 15-16); inventory is added
-    /// by Task 17 and still falls back to chat in the meantime, so `UiRouter.forPlayer`
-    /// never resolves to a missing channel and returns `null` — a real risk now that Task
-    /// 14 wires actual command handlers through `UiRouter`: `UiRouter.choose` defaults
+    /// UI channels: all three now have real implementations. `UiRouter.choose` defaults
     /// unpreferenced players to `DIALOG` once their protocol version reaches
-    /// `min-dialog-protocol`, which most current clients do.
+    /// `min-dialog-protocol`, and to `INVENTORY` otherwise (clients too old for the Dialog
+    /// API, which ViaVersion means this server does see).
     @Provides @Singleton
-    java.util.Map<UiChannel, ProjectUi> channels(ChatUi chat, DialogUi dialog) {
+    java.util.Map<UiChannel, ProjectUi> channels(ChatUi chat, DialogUi dialog, InventoryUi inventory) {
         return java.util.Map.of(
                 UiChannel.CHAT, chat,
-                UiChannel.INVENTORY, chat,
+                UiChannel.INVENTORY, inventory,
                 UiChannel.DIALOG, dialog);
     }
 

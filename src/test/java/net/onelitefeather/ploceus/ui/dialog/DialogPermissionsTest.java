@@ -8,6 +8,7 @@ import net.onelitefeather.ploceus.persistence.ProjectRepository;
 import net.onelitefeather.ploceus.persistence.TagRepository;
 import net.onelitefeather.ploceus.service.AuditService;
 import net.onelitefeather.ploceus.service.ProjectService;
+import net.onelitefeather.ploceus.ui.UiPermissions;
 import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /// Proves both halves of the dialog permission gate described on `DialogUi` and
 /// `DialogCallbacks`:
 ///
-/// - `DialogPermissions.guarded` (tests 1-2) is the execute-time re-check that stops a
+/// - `UiPermissions.guarded` (tests 1-2) is the execute-time re-check that stops a
 ///   forged/replayed callback from ever reaching the service layer, even for a button that
 ///   was legitimately rendered.
 /// - `DialogCallbacks.button` (tests 3-5) is the render-time half: since `permission` and
@@ -37,7 +38,7 @@ class DialogPermissionsTest {
         AtomicBoolean actionRan = new AtomicBoolean(false);
         AtomicBoolean deniedRan = new AtomicBoolean(false);
 
-        Runnable guarded = DialogPermissions.guarded(
+        Runnable guarded = UiPermissions.guarded(
                 permission -> false, "ploceus.project.delete",
                 () -> deniedRan.set(true), () -> actionRan.set(true));
         guarded.run();
@@ -51,7 +52,7 @@ class DialogPermissionsTest {
         AtomicBoolean actionRan = new AtomicBoolean(false);
         AtomicBoolean deniedRan = new AtomicBoolean(false);
 
-        Runnable guarded = DialogPermissions.guarded(
+        Runnable guarded = UiPermissions.guarded(
                 permission -> true, "ploceus.project.delete",
                 () -> deniedRan.set(true), () -> actionRan.set(true));
         guarded.run();

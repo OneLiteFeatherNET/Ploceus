@@ -16,6 +16,7 @@ import net.onelitefeather.ploceus.service.*;
 import net.onelitefeather.ploceus.ui.Messages;
 import net.onelitefeather.ploceus.ui.Page;
 import net.onelitefeather.ploceus.ui.ProjectUi;
+import net.onelitefeather.ploceus.ui.UiPermissions;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -470,16 +471,16 @@ public class DialogUi implements ProjectUi {
     /// been shown the button that would normally trigger it. Used directly only where a
     /// `Runnable` needs a *second*, explicit guard beyond what {@link #button} already gives
     /// its own click (the delete confirmation's "Yes", and each form's `submitButton`).
-    /// Delegates to {@link DialogPermissions}, which holds the actual (`Player`-free, unit
+    /// Delegates to {@link UiPermissions}, which holds the actual (`Player`-free, unit
     /// testable) enforcement logic.
     private boolean permitted(Player player, String permission) {
-        return DialogPermissions.permitted(player::hasPermission, permission, () -> denyPermission(player));
+        return UiPermissions.permitted(player::hasPermission, permission, () -> denyPermission(player));
     }
 
     /// Wraps a `Runnable` action so the permission is re-checked the instant it fires, not
     /// just when the button that offers it was rendered.
     private Runnable guarded(Player player, String permission, Runnable action) {
-        return DialogPermissions.guarded(player::hasPermission, permission, () -> denyPermission(player), action);
+        return UiPermissions.guarded(player::hasPermission, permission, () -> denyPermission(player), action);
     }
 
     private void denyPermission(Player player) {

@@ -85,6 +85,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void mainMenu(Player player) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         List<ActionButton> buttons = new ArrayList<>();
         addIfPermitted(buttons, player, "ploceus.project.list",
                 Messages.get("menu.projects"), () -> openProjectList(player, 0));
@@ -98,6 +101,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void projectList(Player player, Page<Project> page) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         List<ActionButton> buttons = new ArrayList<>();
         for (Project project : page.items()) {
             addIfPermitted(buttons, player, "ploceus.project.list",
@@ -119,6 +125,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void projectDetail(Player player, Project project, List<ProjectWorld> projectWorlds) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         List<ActionButton> buttons = new ArrayList<>();
         addIfPermitted(buttons, player, "ploceus.world.list",
                 Messages.get("menu.worlds", placeholder("count", String.valueOf(projectWorlds.size()))),
@@ -148,6 +157,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void worldList(Player player, Project project, Page<ProjectWorld> page) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         List<ActionButton> buttons = new ArrayList<>(worldButtons(player, page.items()));
         buttons.addAll(DialogCallbacks.paginationButtons(player, "ploceus.use", () -> denyPermission(player),
                 page, target -> openWorldList(player, project.getKey(), target)));
@@ -158,6 +170,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void unassignedWorlds(Player player, Page<ProjectWorld> page) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         List<ActionButton> buttons = new ArrayList<>(worldButtons(player, page.items()));
         buttons.addAll(DialogCallbacks.paginationButtons(player, "ploceus.use", () -> denyPermission(player),
                 page, target -> openUnassigned(player, target)));
@@ -168,6 +183,9 @@ public class DialogUi implements ProjectUi {
     @Override
     public void searchResults(Player player, String term, Page<Project> foundProjects,
                               Page<ProjectWorld> foundWorlds) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         List<ActionButton> buttons = new ArrayList<>();
         foundProjects.items().forEach(project -> addIfPermitted(buttons, player, "ploceus.project.list",
                 Component.text(project.getDisplayName()),
@@ -185,6 +203,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void auditTrail(Player player, PloceusKey target, Page<AuditEntry> entries) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         List<DialogBody> body = entries.items().stream()
                 .<DialogBody>map(entry -> DialogBody.plainMessage(
                         Messages.get("audit.entry",
@@ -202,6 +223,9 @@ public class DialogUi implements ProjectUi {
                 backTo(player, () -> openProjectDetail(player, target)), COLUMNS));
     }
 
+    /// The one screen that still says something useful without `ploceus.use`: a dialog
+    /// needs a back button this player cannot have, but the outcome of what they just did is
+    /// worth reporting anyway, so it goes to chat instead of being swallowed.
     @Override
     public void feedback(Player player, OperationResult<?> result, String successKey) {
         Component message = switch (result) {
@@ -210,9 +234,13 @@ public class DialogUi implements ProjectUi {
             case OperationResult.Failure<?> failure ->
                     Messages.get(failure.messageKey(), placeholder("detail", failure.detail()));
         };
+        ActionButton back = backTo(player, () -> mainMenu(player));
+        if (back == null) {
+            player.sendMessage(message);
+            return;
+        }
         player.showDialog(DialogFactory.notice(Messages.get("menu.title"),
-                List.of(DialogBody.plainMessage(message)),
-                List.of(), backTo(player, () -> mainMenu(player))));
+                List.of(DialogBody.plainMessage(message)), List.of(), back));
     }
 
     @Override
@@ -222,6 +250,9 @@ public class DialogUi implements ProjectUi {
         // has no way to know that permission itself, so its own button only asserts
         // `ploceus.use` (reaching a confirm screen at all). "No" only closes the dialog,
         // which is never privileged.
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         player.showDialog(DialogFactory.confirmation(
                 Messages.get("menu.title"),
                 List.of(DialogBody.plainMessage(Messages.get(messageKey))),
@@ -231,6 +262,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void searchPrompt(Player player) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         var term = DialogInput.text("term", Messages.get("menu.search")).build();
         player.showDialog(DialogFactory.notice(
                 Messages.get("menu.search"),
@@ -250,6 +284,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void createProjectForm(Player player) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         var keyInput = DialogInput.text("key", Messages.get("form.key")).build();
         var nameInput = DialogInput.text("displayName", Messages.get("form.displayName")).build();
         var descriptionInput = DialogInput.text("description", Messages.get("form.description")).build();
@@ -282,6 +319,9 @@ public class DialogUi implements ProjectUi {
 
     @Override
     public void editProjectForm(Player player, Project project) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         var nameInput = DialogInput.text("displayName", Messages.get("form.displayName"))
                 .initial(project.getDisplayName()).build();
         var descriptionInput = DialogInput.text("description", Messages.get("form.description"))
@@ -328,6 +368,9 @@ public class DialogUi implements ProjectUi {
     @Override
     public void createWorldForm(Player player, Project project, String suggestedName,
                                 List<String> generators) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
         WorldDefaults defaults = creation.defaultsFor(project);
 
         var worldNameInput = DialogInput.text("worldName", Messages.get("form.key"))
@@ -591,9 +634,35 @@ public class DialogUi implements ProjectUi {
         return UiPermissions.guarded(player::hasPermission, permission, () -> denyPermission(player), action);
     }
 
+    /// Builds its own back button, which is why it used to be part of the problem rather
+    /// than the answer to it: for a player without `ploceus.use` that button is `null`, and
+    /// `DialogType.notice` rejects null, so the denial itself threw.
     private void denyPermission(Player player) {
+        ActionButton back = backTo(player, () -> mainMenu(player));
+        if (back == null) {
+            player.sendMessage(Messages.chat("error.noPermission"));
+            return;
+        }
         player.showDialog(DialogFactory.notice(Messages.get("menu.title"),
                 List.of(DialogBody.plainMessage(Messages.get("error.noPermission"))),
-                List.of(), backTo(player, () -> mainMenu(player))));
+                List.of(), back));
+    }
+
+    /// The floor for this whole channel. Every dialog it builds carries at least one button
+    /// — back, exit, confirm or submit — and all of them come from
+    /// {@link DialogCallbacks#button}, which returns `null` for a player who lacks the
+    /// permission, while Paper's `DialogType.confirmation`/`notice` and
+    /// `MultiActionType.exitAction` all reject null. A player holding, say,
+    /// `ploceus.project.list` but not `ploceus.use` therefore hit an NPE on every screen.
+    ///
+    /// Rather than make every screen null-tolerant (which would leave a player stranded in a
+    /// dialog with no way out), the channel steps aside: the denial goes to chat, which
+    /// needs no buttons, and the router's chat and inventory channels remain usable.
+    private boolean canRenderDialogs(Player player) {
+        if (player.hasPermission(UiPermissions.BASE)) {
+            return true;
+        }
+        player.sendMessage(Messages.chat("error.noPermission"));
+        return false;
     }
 }

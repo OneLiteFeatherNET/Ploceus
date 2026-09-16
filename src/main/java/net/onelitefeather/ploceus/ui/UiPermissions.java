@@ -20,6 +20,12 @@ import java.util.function.Predicate;
 /// callback, so the enforcement logic itself is unit-testable without a running server.
 public final class UiPermissions {
 
+    /// The floor for every channel. Not just another node: the dialog channel cannot build
+    /// a dialog at all without it, because every navigation button it has — back, exit,
+    /// confirm, submit — is created through a factory that (correctly) returns no button
+    /// for a player who lacks it, while Paper's `DialogType` factories reject a null button.
+    public static final String BASE = "ploceus.use";
+
     private UiPermissions() { }
 
     /// Returns whether `permission` is held; runs `onDenied` and returns `false` otherwise.

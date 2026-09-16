@@ -11,11 +11,16 @@ import org.junit.jupiter.api.TestFactory;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -126,6 +131,66 @@ class PluginManifestTest {
                                     coordinate)
                             .contains(jarName);
                 }));
+    }
+
+    /// Every `ploceus.*` node the code checks must be declared, and every declared node
+    /// must be one the code checks — a leaf nobody enforces is a promise to an operator that
+    /// nothing keeps. Aggregate nodes (the ones with `children`) are exempt from the second
+    /// half, since they exist to be granted rather than checked.
+    ///
+    /// Reads the sources rather than the bytecode: the nodes are plain string literals
+    /// spread across the command layer and two UI channels, and this is the cheapest way to
+    /// see all of them at once.
+    @Test
+    void everyPermissionNodeInTheCodeIsDeclaredAndViceVersa() throws Exception {
+        Set<String> used = new TreeSet<>();
+        Pattern node = Pattern.compile("\"(ploceus(?:\\.[a-z]+)+)\"");
+        try (Stream<Path> sources = Files.walk(Path.of("src/main/java"))) {
+            for (Path source : sources.filter(path -> path.toString().endsWith(".java")).toList()) {
+                Matcher matcher = node.matcher(Files.readString(source));
+                while (matcher.find()) {
+                    used.add(matcher.group(1));
+                }
+            }
+        }
+        assertThat(used).as("no permission nodes found; the source scan is broken").isNotEmpty();
+
+        Map<String, Object> permissions = declaredPermissions();
+        assertThat(permissions.keySet())
+                .as("paper-plugin.yml must declare every node the code checks, so LuckPerms "
+                        + "and /help can see them")
+                .containsAll(used);
+
+        Set<String> leaves = permissions.entrySet().stream()
+                .filter(entry -> !asMap(entry.getValue()).containsKey("children"))
+                .map(Map.Entry::getKey)
+                .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
+        assertThat(leaves)
+                .as("a declared node that nothing in the code checks is a promise to the "
+                        + "operator that nobody keeps")
+                .containsExactlyInAnyOrderElementsOf(used);
+    }
+
+    @Test
+    void everyDeclaredPermissionHasADescriptionAndADefault() {
+        declaredPermissions().forEach((name, body) -> {
+            Map<String, Object> fields = asMap(body);
+            assertThat(fields).as("%s needs a description an operator can read", name)
+                    .containsKey("description");
+            assertThat(fields).as("%s needs an explicit default", name).containsKey("default");
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> declaredPermissions() {
+        Object permissions = MANIFEST.get("permissions");
+        assertThat(permissions).as("paper-plugin.yml must declare a permissions block").isNotNull();
+        return (Map<String, Object>) permissions;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
     }
 
     @Test

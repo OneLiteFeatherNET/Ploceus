@@ -6,8 +6,12 @@ import net.onelitefeather.ploceus.domain.*;
 import net.onelitefeather.ploceus.persistence.AuditRepository;
 import net.onelitefeather.ploceus.persistence.ProjectRepository;
 import net.onelitefeather.ploceus.persistence.TagRepository;
+import net.onelitefeather.ploceus.persistence.WorldRepository;
+import net.onelitefeather.ploceus.platform.MultiverseAdapter;
+import net.onelitefeather.ploceus.platform.WorldCreationRequest;
 import net.onelitefeather.ploceus.service.AuditService;
 import net.onelitefeather.ploceus.service.ProjectService;
+import net.onelitefeather.ploceus.service.WorldCreationService;
 import net.onelitefeather.ploceus.ui.UiPermissions;
 import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
@@ -139,6 +143,100 @@ class DialogPermissionsTest {
         assertThat(button).isNull();
         assertThat(projects.renameCalled).isFalse();
         assertThat(projects.find(key).orElseThrow().getDisplayName()).isEqualTo("Original Name");
+    }
+
+    /// Same wiring as `DialogUi.createWorldForm`'s submit button, which gates
+    /// `ploceus.world.create` before ever calling `creation.create`. This is the case the
+    /// task's security review specifically closed: an unguarded button could not be
+    /// constructed at all, since `DialogCallbacks.button` requires a permission node.
+    @Test
+    void createWorldButtonDoesNotExistWhenThePlayerLacksTheCreatePermission() {
+        RecordingWorldCreationService creation = recordingWorldCreationService();
+        Project project = new Project(PloceusKey.of("proj"), "Project");
+        var form = new WorldCreationService.WorldCreationForm(
+                "never-created-world", "Never Created", "", "", "NORMAL", false, null);
+        Player player = playerDeniedEverything();
+
+        ActionButton button = DialogCallbacks.button(player, "ploceus.world.create",
+                Component.text("Create"), null, () -> { },
+                () -> creation.create(project, form, Actor.CONSOLE));
+
+        assertThat(button).isNull();
+        assertThat(creation.createCalled).isFalse();
+        assertThat(creation.worlds.findByWorldName("never-created-world")).isEmpty();
+    }
+
+    // --- a small in-memory WorldCreationService, wired the same way WorldFixtures wires
+    // WorldService, wrapped in a subclass that records whether `create` was actually entered ---
+
+    private static RecordingWorldCreationService recordingWorldCreationService() {
+        Map<PloceusKey, ProjectWorld> storage = new LinkedHashMap<>();
+
+        WorldRepository worldRepository = new WorldRepository(null) {
+            @Override public Optional<ProjectWorld> findByKey(PloceusKey key) {
+                return Optional.ofNullable(storage.get(key));
+            }
+            @Override public Optional<ProjectWorld> findByWorldName(String worldName) {
+                return storage.values().stream()
+                        .filter(world -> world.getWorldName().equals(worldName))
+                        .findFirst();
+            }
+            @Override public List<ProjectWorld> findAll() { return List.copyOf(storage.values()); }
+            @Override public void save(ProjectWorld world) { storage.put(world.getKey(), world); }
+        };
+
+        AuditRepository auditRepository = new AuditRepository(null) {
+            private final List<AuditEntry> entries = new ArrayList<>();
+            @Override public void append(AuditEntry entry) { entries.add(entry); }
+            @Override public List<AuditEntry> findByTarget(PloceusKey t, int limit, int offset) {
+                return entries.reversed().stream()
+                        .filter(e -> e.getTargetId().equals(t))
+                        .skip(offset).limit(limit).toList();
+            }
+        };
+
+        MultiverseAdapter multiverse = new MultiverseAdapter(null, null) {
+            @Override public net.onelitefeather.ploceus.domain.OperationResult<String>
+                    createWorld(WorldCreationRequest request) {
+                return net.onelitefeather.ploceus.domain.OperationResult.success(request.worldName());
+            }
+            @Override public net.onelitefeather.ploceus.domain.OperationResult<Void>
+                    setAutoLoad(String worldName, boolean autoLoad) {
+                return net.onelitefeather.ploceus.domain.OperationResult.success(null);
+            }
+            @Override public net.onelitefeather.ploceus.domain.OperationResult<Void>
+                    setAlias(String worldName, String alias) {
+                return net.onelitefeather.ploceus.domain.OperationResult.success(null);
+            }
+        };
+
+        WorldDefaults configDefaults = new WorldDefaults("", "", "NORMAL", false, "");
+        return new RecordingWorldCreationService(multiverse, worldRepository,
+                new AuditService(auditRepository), configDefaults);
+    }
+
+    /// Overrides only `create`, the method the test cares about; it still fully delegates to
+    /// the real `WorldCreationService` logic via `super`, so "was blocked" is proven both by
+    /// the flag and by the fixture's resulting state. Exposes `worlds` so the test can assert
+    /// on the repository double directly, the same way `RecordingProjectService` exposes its
+    /// state through `find`.
+    private static final class RecordingWorldCreationService extends WorldCreationService {
+
+        boolean createCalled;
+        final WorldRepository worlds;
+
+        RecordingWorldCreationService(MultiverseAdapter multiverse, WorldRepository worlds,
+                                      AuditService audit, WorldDefaults configDefaults) {
+            super(multiverse, worlds, audit, configDefaults);
+            this.worlds = worlds;
+        }
+
+        @Override
+        public net.onelitefeather.ploceus.domain.OperationResult<ProjectWorld> create(
+                Project project, WorldCreationForm form, Actor actor) {
+            createCalled = true;
+            return super.create(project, form, actor);
+        }
     }
 
     // --- a small in-memory ProjectService, in the same style as service.InMemoryFixtures,

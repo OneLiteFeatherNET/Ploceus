@@ -66,16 +66,21 @@ public class DialogUi implements ProjectUi {
     private final AuditService audit;
     private final SchedulerAdapter scheduler;
     private final PloceusConfig config;
+    private final WorldCreationService creation;
+    private final NameSuggester suggester;
 
     @Inject
     public DialogUi(ProjectService projects, WorldService worlds, WorldLifecycleService lifecycle,
-                    AuditService audit, SchedulerAdapter scheduler, PloceusConfig config) {
+                    AuditService audit, SchedulerAdapter scheduler, PloceusConfig config,
+                    WorldCreationService creation, NameSuggester suggester) {
         this.projects = projects;
         this.worlds = worlds;
         this.lifecycle = lifecycle;
         this.audit = audit;
         this.scheduler = scheduler;
         this.config = config;
+        this.creation = creation;
+        this.suggester = suggester;
     }
 
     @Override
@@ -306,14 +311,107 @@ public class DialogUi implements ProjectUi {
                 })));
     }
 
-    /// World-creation form arrives with Task 18, once world creation options (generators,
-    /// environments, seeds) are wired through `MultiverseAdapter`. Its submit callback must
-    /// check `ploceus.world.create` the same way the other forms check theirs (pass it to
-    /// {@link #submitButton}).
+    /// Two actions instead of `notice`'s one: "Create" submits, "Suggest another name"
+    /// reopens this same form with a fresh suggestion, because the Dialog API cannot change
+    /// a value inside an already-open dialog. Every value the player typed besides the name
+    /// is lost on re-roll — an accepted trade-off for a name suggester, not a general-purpose
+    /// form refresh. The generator/environment pickers and the structures toggle are
+    /// pre-filled from {@link WorldCreationService#defaultsFor}, i.e. the project's preset
+    /// falling back to the config default; the player may still override any of them, and a
+    /// deviating generator is recorded to the audit trail by the service, not here.
+    ///
+    /// Both buttons are built through this class's own `submitButton`/`button` helpers —
+    /// the same mandatory-permission factories every other form in this class uses — so
+    /// `ploceus.world.create` is re-checked the instant either callback fires, exactly like
+    /// `createProjectForm` and `editProjectForm`.
     @Override
     public void createWorldForm(Player player, Project project, String suggestedName,
                                 List<String> generators) {
-        throw new UnsupportedOperationException("Task 18");
+        WorldDefaults defaults = creation.defaultsFor(project);
+
+        var worldNameInput = DialogInput.text("worldName", Messages.get("form.key"))
+                .initial(suggestedName).build();
+        var displayNameInput = DialogInput.text("displayName", Messages.get("form.displayName"))
+                .initial(suggestedName).build();
+        var generatorInput = DialogInput.singleOption("generator", Messages.get("form.generator"),
+                        generatorOptions(generators, defaults.getGenerator()))
+                .build();
+        var environmentInput = DialogInput.singleOption("environment", Messages.get("form.environment"),
+                        environmentOptions(defaults.getEnvironment()))
+                .build();
+        var structuresInput = DialogInput.bool("structures", Messages.get("form.structures"))
+                .initial(defaults.isGenerateStructures()).build();
+        var seedInput = DialogInput.text("seed", Messages.get("form.seed")).build();
+
+        List<ActionButton> buttons = new ArrayList<>();
+        buttons.add(submitButton(player, "ploceus.world.create", view -> {
+            Long seed = parseSeed(view.getText("seed"));
+            var form = new WorldCreationService.WorldCreationForm(
+                    textOf(view, "worldName"), textOf(view, "displayName"),
+                    textOf(view, "generator"), "", textOf(view, "environment"),
+                    Boolean.TRUE.equals(view.getBoolean("structures")), seed);
+            Actor actor = new Actor(player.getUniqueId(), player.getName());
+            // World creation is a Bukkit operation: main thread.
+            scheduler.sync(() -> feedback(player, creation.create(project, form, actor), "world.created"));
+        }));
+        addIfPermitted(buttons, player, "ploceus.world.create", Messages.get("button.reroll"),
+                () -> rerollWorldName(player, project, generators));
+
+        player.showDialog(DialogFactory.multiAction(
+                Component.text(project.getDisplayName()),
+                List.of(worldNameInput, displayNameInput, generatorInput, environmentInput,
+                        structuresInput, seedInput),
+                buttons, COLUMNS));
+    }
+
+    /// Re-suggests a name unique against every currently known world and reopens the form
+    /// with it, discarding whatever else the player had typed — the Dialog API cannot patch
+    /// a value inside an already-open dialog, so a fresh dialog is the only way to show a
+    /// new suggestion.
+    private void rerollWorldName(Player player, Project project, List<String> generators) {
+        scheduler.async(() -> {
+            java.util.Set<String> taken = worlds.all().stream()
+                    .map(ProjectWorld::getWorldName)
+                    .collect(java.util.stream.Collectors.toSet());
+            String fresh = suggester.suggestUnique(taken::contains);
+            scheduler.sync(() -> createWorldForm(player, project, fresh, generators));
+        });
+    }
+
+    /// The vanilla option (empty generator string) always comes first so the picker is never
+    /// empty even when Multiverse reports no installed generator plugins; it is selected by
+    /// default whenever the resolved default generator is blank.
+    private List<SingleOptionDialogInput.OptionEntry> generatorOptions(List<String> generators,
+                                                                       String defaultGenerator) {
+        List<SingleOptionDialogInput.OptionEntry> options = new ArrayList<>();
+        boolean defaultIsVanilla = defaultGenerator == null || defaultGenerator.isBlank();
+        options.add(SingleOptionDialogInput.OptionEntry.create(
+                "", Messages.get("form.generator.vanilla"), defaultIsVanilla));
+        for (String generator : generators) {
+            options.add(SingleOptionDialogInput.OptionEntry.create(
+                    generator, Component.text(generator), generator.equals(defaultGenerator)));
+        }
+        return List.copyOf(options);
+    }
+
+    private List<SingleOptionDialogInput.OptionEntry> environmentOptions(String defaultEnvironment) {
+        return Arrays.stream(new String[] {"NORMAL", "NETHER", "THE_END"})
+                .map(name -> SingleOptionDialogInput.OptionEntry.create(
+                        name, Component.text(name), name.equals(defaultEnvironment)))
+                .toList();
+    }
+
+    /// A blank seed means "random"; anything that does not parse as a `long` is hashed into
+    /// one rather than rejected, so a memorable phrase works as a seed too.
+    private Long parseSeed(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException exception) {
+            return (long) raw.trim().hashCode();
+        }
     }
 
     // --- helpers: every one of these loads asynchronously and shows synchronously ---

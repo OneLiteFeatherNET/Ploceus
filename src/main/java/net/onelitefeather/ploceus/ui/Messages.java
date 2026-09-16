@@ -64,6 +64,7 @@ public final class Messages {
             Map.entry("form.tags", "<yellow>Tags (comma separated)</yellow>"),
             Map.entry("form.status", "<yellow>Status</yellow>"),
             Map.entry("form.generator", "<yellow>Generator</yellow>"),
+            Map.entry("form.generator.vanilla", "Vanilla"),
             Map.entry("form.environment", "<yellow>Environment</yellow>"),
             Map.entry("form.structures", "<yellow>Generate structures</yellow>"),
             Map.entry("form.seed", "<yellow>Seed (empty = random)</yellow>"),

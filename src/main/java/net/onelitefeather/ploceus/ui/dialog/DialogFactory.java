@@ -29,6 +29,17 @@ public final class DialogFactory {
                 .type(DialogType.multiAction(buttons).columns(columns).exitAction(exit).build()));
     }
 
+    /// Overload with inputs instead of a body: `DialogBase` and `DialogType` are
+    /// independent, so a multi-action button grid can carry form inputs too — used for the
+    /// world creation form, which needs more than one action (create, re-roll the suggested
+    /// name) alongside its inputs, unlike `notice`'s single submit button.
+    public static Dialog multiAction(Component title, List<DialogInput> inputs, List<ActionButton> buttons,
+                                     int columns) {
+        return Dialog.create(builder -> builder.empty()
+                .base(DialogBase.builder(title).inputs(inputs).build())
+                .type(DialogType.multiAction(buttons).columns(columns).build()));
+    }
+
     public static Dialog notice(Component title, List<DialogBody> body,
                                 List<DialogInput> inputs, ActionButton submit) {
         return Dialog.create(builder -> builder.empty()

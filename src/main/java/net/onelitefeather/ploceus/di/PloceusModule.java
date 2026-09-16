@@ -108,6 +108,16 @@ public class PloceusModule extends AbstractModule {
         return new WorldImportService(worlds, audit);
     }
 
+    @Provides @Singleton NameSuggester nameSuggester() {
+        return new NameSuggester();
+    }
+
+    @Provides @Singleton
+    WorldCreationService worldCreation(MultiverseAdapter multiverse, WorldRepository worlds,
+                                       AuditService audit, PloceusConfig config) {
+        return new WorldCreationService(multiverse, worlds, audit, config.worldDefaults());
+    }
+
     @Provides @Singleton
     UnloadPolicy unloadPolicy(PloceusConfig config, Plugin plugin) {
         String defaultWorld = plugin.getServer().getWorlds().getFirst().getName();

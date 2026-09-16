@@ -3,6 +3,8 @@ package net.onelitefeather.ploceus.command;
 import jakarta.inject.Inject;
 import net.onelitefeather.ploceus.PloceusConfig;
 import net.onelitefeather.ploceus.domain.*;
+import net.onelitefeather.ploceus.platform.GeneratorOption;
+import net.onelitefeather.ploceus.platform.MultiverseAdapter;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 import net.onelitefeather.ploceus.service.*;
 import net.onelitefeather.ploceus.ui.Page;
@@ -40,11 +42,13 @@ public class PloceusCommands {
     private final UiRouter router;
     private final SchedulerAdapter scheduler;
     private final PloceusConfig config;
+    private final NameSuggester suggester;
+    private final MultiverseAdapter multiverse;
 
     @Inject
     public PloceusCommands(ProjectService projects, WorldService worlds, WorldLifecycleService lifecycle,
                            AuditService audit, UiRouter router, SchedulerAdapter scheduler,
-                           PloceusConfig config) {
+                           PloceusConfig config, NameSuggester suggester, MultiverseAdapter multiverse) {
         this.projects = projects;
         this.worlds = worlds;
         this.lifecycle = lifecycle;
@@ -52,6 +56,8 @@ public class PloceusCommands {
         this.router = router;
         this.scheduler = scheduler;
         this.config = config;
+        this.suggester = suggester;
+        this.multiverse = multiverse;
     }
 
     private Actor actorOf(Player player) {
@@ -131,6 +137,26 @@ public class PloceusCommands {
                     config.entriesPerPage());
             scheduler.sync(() -> router.forPlayer(player).unassignedWorlds(player, result));
         });
+    }
+
+    /// Suggests a unique name off the main thread (it only reads the world list), then hops
+    /// back to the main thread to read Multiverse's installed generators and open the form —
+    /// the same split `DialogUi.rerollWorldName` uses to re-suggest without ever touching
+    /// Multiverse from an async task.
+    @Command("ploceus|projects|pj world create <projectKey>")
+    @Permission("ploceus.world.create")
+    public void createWorldForm(Player player, @Argument("projectKey") PloceusKey projectKey) {
+        scheduler.async(() -> projects.find(projectKey).ifPresentOrElse(project -> {
+            var taken = worlds.all().stream().map(ProjectWorld::getWorldName)
+                    .collect(java.util.stream.Collectors.toSet());
+            String suggestion = suggester.suggestUnique(taken::contains);
+            scheduler.sync(() -> {
+                List<String> generators = multiverse.generators().stream()
+                        .map(GeneratorOption::pluginName).toList();
+                router.forPlayer(player).createWorldForm(player, project, suggestion, generators);
+            });
+        }, () -> scheduler.sync(() -> router.forPlayer(player).feedback(player,
+                OperationResult.failure("project.unknown", projectKey.asString()), ""))));
     }
 
     @Command("ploceus|projects|pj world assign <worldKey> <projectKey>")

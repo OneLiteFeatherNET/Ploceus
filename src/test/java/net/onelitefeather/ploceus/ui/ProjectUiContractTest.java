@@ -30,7 +30,7 @@ class ProjectUiContractTest {
     @TestFactory
     Stream<DynamicTest> everyChannelImplementsEveryScreen() {
         return CHANNELS.stream().flatMap(channel ->
-                Arrays.stream(ProjectUi.class.getDeclaredMethods()).map(screen ->
+                screens().map(screen ->
                         DynamicTest.dynamicTest(
                                 channel.getSimpleName() + " implements " + screen.getName(),
                                 () -> assertThat(declares(channel, screen))
@@ -61,6 +61,13 @@ class ProjectUiContractTest {
                                         + "until a player actually opens it",
                                 channel.getSimpleName())
                         .isFalse()));
+    }
+
+    /// Only the abstract instance methods are screens. `ProjectUi` also carries a static
+    /// helper (`successOperands`), which no channel implements or should.
+    private static Stream<Method> screens() {
+        return Arrays.stream(ProjectUi.class.getDeclaredMethods())
+                .filter(method -> java.lang.reflect.Modifier.isAbstract(method.getModifiers()));
     }
 
     private boolean declares(Class<?> channel, Method screen) {

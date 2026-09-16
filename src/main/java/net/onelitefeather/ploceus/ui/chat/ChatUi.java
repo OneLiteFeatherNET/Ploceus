@@ -132,7 +132,8 @@ public class ChatUi implements ProjectUi {
     @Override
     public void feedback(Player player, OperationResult<?> result, String successKey) {
         switch (result) {
-            case OperationResult.Success<?> ignored -> player.sendMessage(Messages.chat(successKey));
+            case OperationResult.Success<?> success -> player.sendMessage(
+                    Messages.chat(successKey, ProjectUi.successOperands(success)));
             case OperationResult.Failure<?> failure -> player.sendMessage(Messages.chat(
                     failure.messageKey(), placeholder("detail", failure.detail())));
         }

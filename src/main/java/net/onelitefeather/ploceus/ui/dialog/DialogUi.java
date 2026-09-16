@@ -205,7 +205,8 @@ public class DialogUi implements ProjectUi {
     @Override
     public void feedback(Player player, OperationResult<?> result, String successKey) {
         Component message = switch (result) {
-            case OperationResult.Success<?> ignored -> Messages.get(successKey);
+            case OperationResult.Success<?> success ->
+                    Messages.get(successKey, ProjectUi.successOperands(success));
             case OperationResult.Failure<?> failure ->
                     Messages.get(failure.messageKey(), placeholder("detail", failure.detail()));
         };

@@ -25,10 +25,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.function.IntConsumer;
 
 import static net.onelitefeather.ploceus.ui.Messages.placeholder;
-import static net.onelitefeather.ploceus.ui.dialog.DialogCallbacks.button;
 
 /// The primary channel: Paper's native Dialog API. Every navigation opens a fresh dialog
 /// because dialogs cannot be refreshed in place, and lists paginate by hand because dialogs
@@ -39,7 +37,7 @@ import static net.onelitefeather.ploceus.ui.dialog.DialogCallbacks.button;
 /// The command layer's `@Permission` annotations only ever gate the Cloud command tree —
 /// they say nothing about this class, because Paper dialog buttons are custom-click actions
 /// registered server-side and fired by a plain click packet naming a callback id. Two
-/// consequences follow, and both are handled here rather than left to the caller:
+/// consequences follow:
 ///
 /// 1. Reaching a screen is not authorization to act on it. `projectDetail` is shown to
 ///    anyone holding `ploceus.project.list`, but its delete button performs an action
@@ -50,11 +48,11 @@ import static net.onelitefeather.ploceus.ui.dialog.DialogCallbacks.button;
 ///    contains it, so the permission must be re-checked inside the callback, immediately
 ///    before the service call — that is the check a forged payload cannot skip.
 ///
-/// `permitted`/`guarded`/`addIfPermitted` below apply both checks from a single call site
-/// next to each button, so the permission node lives in exactly one place. Screens that
-/// only navigate between places the player already reached (back links, pagination within
-/// the same list, the exit button) still re-check `ploceus.use` — cheap, and it means no
-/// custom-click callback in this class ever runs unchecked.
+/// Both halves are enforced by construction rather than by convention: every button in this
+/// class is built through {@link DialogCallbacks#button}, which requires a permission node
+/// and returns no button at all when the player lacks it, and wraps the action in an
+/// execute-time re-check when the player has it. There is no other way in this class to
+/// build a button that reaches a service, so a callback cannot silently go unguarded again.
 public class DialogUi implements ProjectUi {
 
     private static final int COLUMNS = 2;
@@ -104,8 +102,8 @@ public class DialogUi implements ProjectUi {
                             Messages.component("tags", tagList(project))),
                     () -> openProjectDetail(player, project.getKey()));
         }
-        buttons.addAll(DialogCallbacks.paginationButtons(page,
-                guardedPage(player, "ploceus.use", target -> openProjectList(player, target))));
+        buttons.addAll(DialogCallbacks.paginationButtons(player, "ploceus.use", () -> denyPermission(player),
+                page, target -> openProjectList(player, target)));
         player.showDialog(DialogFactory.multiAction(
                 Messages.get("project.list.title",
                         placeholder("page", String.valueOf(page.pageNumber() + 1)),
@@ -123,6 +121,11 @@ public class DialogUi implements ProjectUi {
                 Messages.get("menu.edit"), () -> editProjectForm(player, project));
         addIfPermitted(buttons, player, "ploceus.audit",
                 Messages.get("menu.audit"), () -> openAudit(player, project.getKey(), 0));
+        // Deliberate second check on the most destructive action: `addIfPermitted` already
+        // gates whether this button exists at all and re-checks on click, but the action it
+        // opens (the confirm dialog's "Yes") is wrapped in its own explicit `guarded(...)`
+        // for the same permission, so deletion is checked once when the delete button fires
+        // and again when the confirmation is actually accepted.
         addIfPermitted(buttons, player, "ploceus.project.delete",
                 Messages.get("menu.delete"), () -> confirm(player, "project.delete.prompt",
                         guarded(player, "ploceus.project.delete", () -> {
@@ -140,8 +143,8 @@ public class DialogUi implements ProjectUi {
     @Override
     public void worldList(Player player, Project project, Page<ProjectWorld> page) {
         List<ActionButton> buttons = new ArrayList<>(worldButtons(player, page.items()));
-        buttons.addAll(DialogCallbacks.paginationButtons(page,
-                guardedPage(player, "ploceus.use", target -> openWorldList(player, project.getKey(), target))));
+        buttons.addAll(DialogCallbacks.paginationButtons(player, "ploceus.use", () -> denyPermission(player),
+                page, target -> openWorldList(player, project.getKey(), target)));
         player.showDialog(DialogFactory.multiAction(
                 Component.text(project.getDisplayName()), buttons,
                 backTo(player, () -> openProjectDetail(player, project.getKey())), COLUMNS));
@@ -150,8 +153,8 @@ public class DialogUi implements ProjectUi {
     @Override
     public void unassignedWorlds(Player player, Page<ProjectWorld> page) {
         List<ActionButton> buttons = new ArrayList<>(worldButtons(player, page.items()));
-        buttons.addAll(DialogCallbacks.paginationButtons(page,
-                guardedPage(player, "ploceus.use", target -> openUnassigned(player, target))));
+        buttons.addAll(DialogCallbacks.paginationButtons(player, "ploceus.use", () -> denyPermission(player),
+                page, target -> openUnassigned(player, target)));
         player.showDialog(DialogFactory.multiAction(
                 Messages.get("menu.unassigned"), buttons, backTo(player, () -> mainMenu(player)), COLUMNS));
     }
@@ -186,8 +189,9 @@ public class DialogUi implements ProjectUi {
                                 placeholder("old", entry.getOldValue()),
                                 placeholder("new", entry.getNewValue()))))
                 .toList();
-        List<ActionButton> buttons = new ArrayList<>(DialogCallbacks.paginationButtons(entries,
-                guardedPage(player, "ploceus.use", pageNumber -> openAudit(player, target, pageNumber))));
+        List<ActionButton> buttons = new ArrayList<>(DialogCallbacks.paginationButtons(
+                player, "ploceus.use", () -> denyPermission(player),
+                entries, pageNumber -> openAudit(player, target, pageNumber)));
         player.showDialog(DialogFactory.multiAction(Messages.get("audit.title"), body, buttons,
                 backTo(player, () -> openProjectDetail(player, target)), COLUMNS));
     }
@@ -208,13 +212,14 @@ public class DialogUi implements ProjectUi {
     public void confirm(Player player, String messageKey, Runnable onConfirm) {
         // `onConfirm` is supplied by the caller and is expected to already be wrapped in
         // `guarded(...)` for whatever permission the confirmed action needs — this method
-        // has no way to know that permission itself. "No" only closes the dialog, which is
-        // never privileged.
+        // has no way to know that permission itself, so its own button only asserts
+        // `ploceus.use` (reaching a confirm screen at all). "No" only closes the dialog,
+        // which is never privileged.
         player.showDialog(DialogFactory.confirmation(
                 Messages.get("menu.title"),
                 List.of(DialogBody.plainMessage(Messages.get(messageKey))),
-                button(Messages.get("button.confirm"), null, onConfirm),
-                button(Messages.get("button.cancel"), null, player::closeDialog)));
+                button(player, "ploceus.use", Messages.get("button.confirm"), onConfirm),
+                button(player, "ploceus.use", Messages.get("button.cancel"), player::closeDialog)));
     }
 
     @Override
@@ -224,10 +229,7 @@ public class DialogUi implements ProjectUi {
                 Messages.get("menu.search"),
                 List.of(DialogBody.plainMessage(Messages.get("search.prompt"))),
                 List.of(term),
-                submitButton(view -> {
-                    if (!permitted(player, "ploceus.search")) {
-                        return;
-                    }
+                submitButton(player, "ploceus.search", view -> {
                     String entered = textOf(view, "term");
                     scheduler.async(() -> {
                         Page<Project> foundProjects =
@@ -249,10 +251,7 @@ public class DialogUi implements ProjectUi {
         player.showDialog(DialogFactory.notice(
                 Messages.get("menu.projects"), List.of(),
                 List.of(keyInput, nameInput, descriptionInput, tagsInput),
-                submitButton(view -> {
-                    if (!permitted(player, "ploceus.project.create")) {
-                        return;
-                    }
+                submitButton(player, "ploceus.project.create", view -> {
                     OperationResult<PloceusKey> key = FormInputs.validateKey(view.getText("key"));
                     if (!(key instanceof OperationResult.Success<PloceusKey> success)) {
                         feedback(player, key, "");
@@ -290,10 +289,7 @@ public class DialogUi implements ProjectUi {
         player.showDialog(DialogFactory.notice(
                 Component.text(project.getDisplayName()), List.of(),
                 List.of(nameInput, descriptionInput, statusInput),
-                submitButton(view -> {
-                    if (!permitted(player, "ploceus.project.edit")) {
-                        return;
-                    }
+                submitButton(player, "ploceus.project.edit", view -> {
                     Actor actor = new Actor(player.getUniqueId(), player.getName());
                     PloceusKey key = project.getKey();
                     String displayName = textOf(view, "displayName");
@@ -311,7 +307,8 @@ public class DialogUi implements ProjectUi {
 
     /// World-creation form arrives with Task 18, once world creation options (generators,
     /// environments, seeds) are wired through `MultiverseAdapter`. Its submit callback must
-    /// check `ploceus.world.create` the same way the other two forms check theirs.
+    /// check `ploceus.world.create` the same way the other forms check theirs (pass it to
+    /// {@link #submitButton}).
     @Override
     public void createWorldForm(Player player, Project project, String suggestedName,
                                 List<String> generators) {
@@ -320,28 +317,28 @@ public class DialogUi implements ProjectUi {
 
     // --- helpers: every one of these loads asynchronously and shows synchronously ---
 
-    /// Every world button teleports, so a single permission check up front covers the whole
-    /// list instead of one player-and-permission-identical check per item; the click itself
-    /// still re-checks via `guarded` for the reason explained on the class.
+    /// Every world button teleports, gated by `ploceus.world.teleport` through the same
+    /// mandatory-permission factory as every other button; a player without it gets no
+    /// world buttons at all, since {@link DialogCallbacks#button} returns `null` per item.
     private List<ActionButton> worldButtons(Player player, List<ProjectWorld> items) {
-        if (!player.hasPermission("ploceus.world.teleport")) {
-            return List.of();
-        }
-        return items.stream().map(world -> button(
-                Component.text(world.getDisplayName()),
-                Messages.get("world.entry",
-                        placeholder("name", world.getWorldName()),
-                        Messages.component("state", loadStateLabel(world))),
-                guarded(player, "ploceus.world.teleport", () -> {
-                    player.sendMessage(Messages.chat("world.teleporting",
-                            placeholder("name", world.getDisplayName())));
-                    player.closeDialog();
-                    lifecycle.teleport(player, world).thenAccept(result -> {
-                        if (!result.isSuccess()) {
-                            scheduler.sync(() -> feedback(player, result, ""));
-                        }
-                    });
-                }))).toList();
+        return items.stream()
+                .map(world -> button(player, "ploceus.world.teleport",
+                        Component.text(world.getDisplayName()),
+                        Messages.get("world.entry",
+                                placeholder("name", world.getWorldName()),
+                                Messages.component("state", loadStateLabel(world))),
+                        () -> {
+                            player.sendMessage(Messages.chat("world.teleporting",
+                                    placeholder("name", world.getDisplayName())));
+                            player.closeDialog();
+                            lifecycle.teleport(player, world).thenAccept(result -> {
+                                if (!result.isSuccess()) {
+                                    scheduler.sync(() -> feedback(player, result, ""));
+                                }
+                            });
+                        }))
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     /// Bukkit's world registry is the source of truth for "loaded"; this reads it while on
@@ -396,13 +393,23 @@ public class DialogUi implements ProjectUi {
         });
     }
 
-    /// A submit button whose callback reads the entered values. Permission checks live
-    /// inside each `onSubmit` (via {@link #permitted}), not here, since the permission node
-    /// differs per form.
-    private ActionButton submitButton(Consumer<DialogResponseView> onSubmit) {
+    /// A submit button whose callback reads the entered values, gated by `permission`
+    /// immediately before `onSubmit` runs. Forms don't go through
+    /// {@link DialogCallbacks#button} because a submit button's callback needs the
+    /// `DialogResponseView` (a `Consumer<DialogResponseView>`, not a bare `Runnable`) — but
+    /// the permission is still mandatory here for the same reason: every form is reachable
+    /// only via a path the caller already permission-checked (a command's `@Permission`, or
+    /// this class's own render-gated menu buttons), yet the callback is still a
+    /// client-driven custom-click payload, so it is re-checked the instant it fires, exactly
+    /// like every other callback in this class.
+    private ActionButton submitButton(Player player, String permission, Consumer<DialogResponseView> onSubmit) {
         return ActionButton.builder(Messages.get("button.confirm"))
                 .action(DialogAction.customClick(
-                        (view, audience) -> onSubmit.accept(view),
+                        (view, audience) -> {
+                            if (permitted(player, permission)) {
+                                onSubmit.accept(view);
+                            }
+                        },
                         ClickCallback.Options.builder().uses(ClickCallback.UNLIMITED_USES).build()))
                 .build();
     }
@@ -413,11 +420,11 @@ public class DialogUi implements ProjectUi {
     }
 
     private ActionButton exitButton(Player player) {
-        return button(Messages.get("button.close"), null, guarded(player, "ploceus.use", () -> { }));
+        return button(player, "ploceus.use", Messages.get("button.close"), () -> { });
     }
 
     private ActionButton backTo(Player player, Runnable target) {
-        return button(Messages.get("page.back"), null, guarded(player, "ploceus.use", target));
+        return button(player, "ploceus.use", Messages.get("page.back"), target);
     }
 
     private Component tagList(Project project) {
@@ -429,47 +436,50 @@ public class DialogUi implements ProjectUi {
                 : Component.text(String.join(", ", tagValues));
     }
 
-    // --- permission enforcement: render-time gating and execute-time re-checking ---
+    // --- permission enforcement ---
 
-    /// The check that actually matters: dialog actions are client-driven custom-click
-    /// payloads, so a forged client could invoke a registered callback without ever having
-    /// been shown the button that would normally trigger it. Every mutating or
-    /// data-revealing callback in this class goes through this (directly, or via
-    /// {@link #guarded}/{@link #addIfPermitted}) immediately before touching a service.
-    /// Delegates to {@link DialogPermissions}, which holds the actual (`Player`-free, unit
-    /// testable) enforcement logic.
-    private boolean permitted(Player player, String permission) {
-        return DialogPermissions.permitted(player::hasPermission, permission, () -> denyPermission(player));
+    /// This class's only entry point into {@link DialogCallbacks#button}: fills in
+    /// `() -> denyPermission(player)` as the denial callback so call sites never repeat it.
+    private ActionButton button(Player player, String permission, Component label, Component tooltip,
+                                Runnable action) {
+        return DialogCallbacks.button(player, permission, label, tooltip, () -> denyPermission(player), action);
     }
 
-    /// Wraps a button/callback action so the permission is re-checked the instant it fires,
-    /// not just when the button was rendered.
-    private Runnable guarded(Player player, String permission, Runnable action) {
-        return DialogPermissions.guarded(player::hasPermission, permission, () -> denyPermission(player), action);
+    private ActionButton button(Player player, String permission, Component label, Runnable action) {
+        return button(player, permission, label, null, action);
     }
 
-    /// Same idea as {@link #guarded}, for the `IntConsumer` shape pagination callbacks use.
-    private IntConsumer guardedPage(Player player, String permission, IntConsumer target) {
-        return pageNumber -> {
-            if (permitted(player, permission)) {
-                target.accept(pageNumber);
-            }
-        };
-    }
-
-    /// Render-time half of the control: a player who may not perform `permission` never
-    /// even sees the button. Paired with {@link #guarded} for the execute-time half, so the
-    /// permission node for a given action lives in exactly one call site.
+    /// Render-time half of the control for lists built one item at a time: a player who may
+    /// not perform `permission` never even sees the button, because {@link #button} already
+    /// returns `null` for them.
     private void addIfPermitted(List<ActionButton> buttons, Player player, String permission,
                                 Component label, Component tooltip, Runnable action) {
-        if (player.hasPermission(permission)) {
-            buttons.add(button(label, tooltip, guarded(player, permission, action)));
+        ActionButton built = button(player, permission, label, tooltip, action);
+        if (built != null) {
+            buttons.add(built);
         }
     }
 
     private void addIfPermitted(List<ActionButton> buttons, Player player, String permission,
                                 Component label, Runnable action) {
         addIfPermitted(buttons, player, permission, label, null, action);
+    }
+
+    /// The check that actually matters: dialog actions are client-driven custom-click
+    /// payloads, so a forged client could invoke a registered callback without ever having
+    /// been shown the button that would normally trigger it. Used directly only where a
+    /// `Runnable` needs a *second*, explicit guard beyond what {@link #button} already gives
+    /// its own click (the delete confirmation's "Yes", and each form's `submitButton`).
+    /// Delegates to {@link DialogPermissions}, which holds the actual (`Player`-free, unit
+    /// testable) enforcement logic.
+    private boolean permitted(Player player, String permission) {
+        return DialogPermissions.permitted(player::hasPermission, permission, () -> denyPermission(player));
+    }
+
+    /// Wraps a `Runnable` action so the permission is re-checked the instant it fires, not
+    /// just when the button that offers it was rendered.
+    private Runnable guarded(Player player, String permission, Runnable action) {
+        return DialogPermissions.guarded(player::hasPermission, permission, () -> denyPermission(player), action);
     }
 
     private void denyPermission(Player player) {

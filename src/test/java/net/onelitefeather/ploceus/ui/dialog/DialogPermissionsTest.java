@@ -1,5 +1,7 @@
 package net.onelitefeather.ploceus.ui.dialog;
 
+import io.papermc.paper.registry.data.dialog.ActionButton;
+import net.kyori.adventure.text.Component;
 import net.onelitefeather.ploceus.domain.*;
 import net.onelitefeather.ploceus.persistence.AuditRepository;
 import net.onelitefeather.ploceus.persistence.ProjectRepository;
@@ -17,12 +19,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/// Proves the execute-time half of the dialog permission gate: `DialogPermissions.guarded`
-/// must stop a forged/replayed callback from ever reaching the service layer, not merely
-/// from being rendered. This is the check that matters, per the class Javadoc on
-/// `DialogUi` and `DialogPermissions` — a modified client can fire a registered
-/// custom-click callback without ever having been shown the button that renders it, so a
-/// render-time `hasPermission` check alone (proven absent here) would not be enough.
+/// Proves both halves of the dialog permission gate described on `DialogUi` and
+/// `DialogCallbacks`:
+///
+/// - `DialogPermissions.guarded` (tests 1-2) is the execute-time re-check that stops a
+///   forged/replayed callback from ever reaching the service layer, even for a button that
+///   was legitimately rendered.
+/// - `DialogCallbacks.button` (tests 3-5) is the render-time half: since `permission` and
+///   `player` are mandatory constructor parameters, a player who lacks the permission gets
+///   `null` back instead of a button — there is no other way through this class to obtain a
+///   button that reaches a service, so the denied case never even constructs a live
+///   `ActionButton` (which would require Paper's registry) — it returns before touching it.
 class DialogPermissionsTest {
 
     @Test
@@ -55,7 +62,7 @@ class DialogPermissionsTest {
 
     /// A `Player` test double whose `hasPermission` always answers `false` — reused across
     /// the service-level tests below to show the wiring works with the actual Bukkit type
-    /// `DialogUi` guards, not just a bare `Predicate<String>`.
+    /// `DialogUi` and `DialogCallbacks` guard, not just a bare `Predicate<String>`.
     private static Player playerDeniedEverything() {
         InvocationHandler handler = (proxy, method, args) -> {
             if (method.getName().equals("hasPermission")) {
@@ -75,62 +82,60 @@ class DialogPermissionsTest {
                 DialogPermissionsTest.class.getClassLoader(), new Class<?>[] {Player.class}, handler);
     }
 
-    /// Same delete flow `DialogUi.projectDetail`'s delete button builds: `guarded(player,
-    /// "ploceus.project.delete", () -> projects.delete(...))`. With a `Player` that denies
-    /// every permission, the project must survive untouched — asserted both as "the
-    /// service's `delete` was never entered" (a recording subclass) and as "the project is
-    /// still there" (the in-memory fixture's own state), so the test does not depend on
-    /// `delete` happening to be a no-op for some other reason.
+    /// Same delete flow `DialogUi.projectDetail`'s delete button builds via
+    /// `DialogCallbacks.button(player, "ploceus.project.delete", ..., () -> projects.delete(...))`.
+    /// With a `Player` that denies every permission, the factory must return `null` (no
+    /// button, no registered callback at all), and the project must survive untouched —
+    /// asserted both as "the service's `delete` was never entered" (a recording subclass)
+    /// and as "the project is still there" (the in-memory fixture's own state).
     @Test
-    void deleteIsBlockedWhenThePlayerLacksTheDeletePermission() {
+    void deleteButtonDoesNotExistWhenThePlayerLacksTheDeletePermission() {
         RecordingProjectService projects = recordingProjectService();
         PloceusKey key = PloceusKey.of("keep-me");
         projects.create(key, "Keep Me", Actor.CONSOLE);
 
         Player player = playerDeniedEverything();
 
-        Runnable deleteAction = DialogPermissions.guarded(
-                player::hasPermission, "ploceus.project.delete", () -> { },
+        ActionButton button = DialogCallbacks.button(player, "ploceus.project.delete",
+                Component.text("Delete"), null, () -> { },
                 () -> projects.delete(key, Actor.CONSOLE));
-        deleteAction.run();
 
+        assertThat(button).isNull();
         assertThat(projects.deleteCalled).isFalse();
         assertThat(projects.find(key)).isPresent();
     }
 
-    /// Same wiring as `DialogUi.createProjectForm`'s submit button:
-    /// `permitted(player, "ploceus.project.create")` gates the call to `projects.create`.
+    /// Same wiring as `DialogUi.createProjectForm`'s submit button, which gates
+    /// `ploceus.project.create` before ever calling `projects.create`.
     @Test
-    void createIsBlockedWhenThePlayerLacksTheCreatePermission() {
+    void createButtonDoesNotExistWhenThePlayerLacksTheCreatePermission() {
         RecordingProjectService projects = recordingProjectService();
         PloceusKey key = PloceusKey.of("never-created");
         Player player = playerDeniedEverything();
 
-        boolean permitted = DialogPermissions.permitted(player::hasPermission, "ploceus.project.create", () -> { });
-        if (permitted) {
-            projects.create(key, "Should not exist", Actor.CONSOLE);
-        }
+        ActionButton button = DialogCallbacks.button(player, "ploceus.project.create",
+                Component.text("Create"), null, () -> { },
+                () -> projects.create(key, "Should not exist", Actor.CONSOLE));
 
-        assertThat(permitted).isFalse();
+        assertThat(button).isNull();
         assertThat(projects.createCalled).isFalse();
         assertThat(projects.find(key)).isEmpty();
     }
 
-    /// Same wiring as `DialogUi.editProjectForm`'s submit button:
-    /// `permitted(player, "ploceus.project.edit")` gates `projects.rename`.
+    /// Same wiring as `DialogUi.editProjectForm`'s submit button, which gates
+    /// `ploceus.project.edit` before ever calling `projects.rename`.
     @Test
-    void renameIsBlockedWhenThePlayerLacksTheEditPermission() {
+    void renameButtonDoesNotExistWhenThePlayerLacksTheEditPermission() {
         RecordingProjectService projects = recordingProjectService();
         PloceusKey key = PloceusKey.of("stays-named");
         projects.create(key, "Original Name", Actor.CONSOLE);
         Player player = playerDeniedEverything();
 
-        boolean permitted = DialogPermissions.permitted(player::hasPermission, "ploceus.project.edit", () -> { });
-        if (permitted) {
-            projects.rename(key, "Renamed", Actor.CONSOLE);
-        }
+        ActionButton button = DialogCallbacks.button(player, "ploceus.project.edit",
+                Component.text("Rename"), null, () -> { },
+                () -> projects.rename(key, "Renamed", Actor.CONSOLE));
 
-        assertThat(permitted).isFalse();
+        assertThat(button).isNull();
         assertThat(projects.renameCalled).isFalse();
         assertThat(projects.find(key).orElseThrow().getDisplayName()).isEqualTo("Original Name");
     }

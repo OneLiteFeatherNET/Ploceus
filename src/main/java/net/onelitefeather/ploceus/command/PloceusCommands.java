@@ -44,11 +44,13 @@ public class PloceusCommands {
     private final PloceusConfig config;
     private final NameSuggester suggester;
     private final MultiverseAdapter multiverse;
+    private final WorldCreationService creation;
 
     @Inject
     public PloceusCommands(ProjectService projects, WorldService worlds, WorldLifecycleService lifecycle,
                            AuditService audit, UiRouter router, SchedulerAdapter scheduler,
-                           PloceusConfig config, NameSuggester suggester, MultiverseAdapter multiverse) {
+                           PloceusConfig config, NameSuggester suggester, MultiverseAdapter multiverse,
+                           WorldCreationService creation) {
         this.projects = projects;
         this.worlds = worlds;
         this.lifecycle = lifecycle;
@@ -58,6 +60,7 @@ public class PloceusCommands {
         this.config = config;
         this.suggester = suggester;
         this.multiverse = multiverse;
+        this.creation = creation;
     }
 
     private Actor actorOf(Player player) {
@@ -129,6 +132,23 @@ public class PloceusCommands {
         });
     }
 
+    /// The chat channel's world-list screen and both graphical channels' pagination
+    /// linked at `/ploceus world list <key> <page>`, which was never registered — the link
+    /// simply failed to parse. `ProjectUi.worldList` is part of the channel contract and
+    /// every channel implements it, so the command that reaches it is what was missing, not
+    /// the screen.
+    @Command("ploceus|projects|pj world list <projectKey> [page]")
+    @Permission("ploceus.world.list")
+    public void worldList(Player player, @Argument("projectKey") PloceusKey projectKey,
+                          @Argument("page") @Default("1") int page) {
+        scheduler.async(() -> projects.find(projectKey).ifPresentOrElse(project -> {
+            Page<ProjectWorld> result = Page.of(worlds.byProject(project), Math.max(0, page - 1),
+                    config.entriesPerPage());
+            scheduler.sync(() -> router.forPlayer(player).worldList(player, project, result));
+        }, () -> scheduler.sync(() -> router.forPlayer(player).feedback(player,
+                OperationResult.failure("project.unknown", projectKey.asString()), ""))));
+    }
+
     @Command("ploceus|projects|pj world list-unassigned [page]")
     @Permission("ploceus.world.list")
     public void unassigned(Player player, @Argument("page") @Default("1") int page) {
@@ -155,6 +175,36 @@ public class PloceusCommands {
                         .map(GeneratorOption::pluginName).toList();
                 router.forPlayer(player).createWorldForm(player, project, suggestion, generators);
             });
+        }, () -> scheduler.sync(() -> router.forPlayer(player).feedback(player,
+                OperationResult.failure("project.unknown", projectKey.asString()), ""))));
+    }
+
+    /// The text-only counterpart of the dialog channel's creation form, and the command
+    /// both the chat and the inventory channel suggest in its place — they suggested this
+    /// exact syntax before it existed, so the suggestion could not be run. Everything the
+    /// form would ask for besides the name comes from {@link WorldCreationService#defaultsFor},
+    /// i.e. the project's preset falling back to the config default.
+    @Command("ploceus|projects|pj world create <projectKey> <worldName>")
+    @Permission("ploceus.world.create")
+    public void createWorld(Player player, @Argument("projectKey") PloceusKey projectKey,
+                            @Argument("worldName") String worldName) {
+        scheduler.async(() -> projects.find(projectKey).ifPresentOrElse(project -> {
+            WorldDefaults defaults = creation.defaultsFor(project);
+            var form = new WorldCreationService.WorldCreationForm(
+                    worldName, worldName, defaults.getGenerator(), defaults.getGeneratorSettings(),
+                    defaults.getEnvironment(), defaults.isGenerateStructures(), null);
+            // `creation.create` crosses threads on its own and completes on whichever thread
+            // its last phase runs on, so the continuation needs its own hop back to main.
+            creation.create(project, form, actorOf(player)).thenAccept(result -> scheduler.sync(() -> {
+                router.forPlayer(player).feedback(player,
+                        result.map(WorldCreationService.CreationOutcome::world), "world.created");
+                if (result instanceof OperationResult.Success<WorldCreationService.CreationOutcome> success) {
+                    success.value().warnings().forEach(warning -> player.sendMessage(
+                            net.onelitefeather.ploceus.ui.Messages.chat(warning.messageKey(),
+                                    net.onelitefeather.ploceus.ui.Messages.placeholder(
+                                            "detail", warning.detail()))));
+                }
+            }));
         }, () -> scheduler.sync(() -> router.forPlayer(player).feedback(player,
                 OperationResult.failure("project.unknown", projectKey.asString()), ""))));
     }

@@ -4,6 +4,7 @@ import jakarta.inject.Inject;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.onelitefeather.ploceus.domain.*;
+import net.onelitefeather.ploceus.ui.CommandLinks;
 import net.onelitefeather.ploceus.ui.Messages;
 import net.onelitefeather.ploceus.ui.Page;
 import net.onelitefeather.ploceus.ui.ProjectUi;
@@ -12,6 +13,7 @@ import org.bukkit.entity.Player;
 import java.time.format.DateTimeFormatter;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.function.IntFunction;
 
 import static net.onelitefeather.ploceus.ui.Messages.placeholder;
 
@@ -27,11 +29,11 @@ public class ChatUi implements ProjectUi {
     public void mainMenu(Player player) {
         player.sendMessage(Messages.chat("menu.title"));
         player.sendMessage(Messages.get("menu.projects")
-                .clickEvent(ClickEvent.runCommand("/ploceus project list")));
+                .clickEvent(ClickEvent.runCommand(CommandLinks.projectList())));
         player.sendMessage(Messages.get("menu.unassigned")
-                .clickEvent(ClickEvent.runCommand("/ploceus world list-unassigned")));
+                .clickEvent(ClickEvent.runCommand(CommandLinks.unassignedWorlds())));
         player.sendMessage(Messages.get("menu.search")
-                .clickEvent(ClickEvent.suggestCommand("/ploceus search ")));
+                .clickEvent(ClickEvent.suggestCommand(CommandLinks.searchPrompt())));
     }
 
     @Override
@@ -39,16 +41,8 @@ public class ChatUi implements ProjectUi {
         player.sendMessage(Messages.chat("project.list.title",
                 placeholder("page", String.valueOf(page.pageNumber() + 1)),
                 placeholder("pages", String.valueOf(page.totalPages()))));
-        for (Project project : page.items()) {
-            player.sendMessage(Messages.get("project.entry",
-                            placeholder("name", project.getDisplayName()),
-                            placeholder("worlds", String.valueOf(project.getWorldCount())),
-                            Messages.component("tags", tagList(project)))
-                    .clickEvent(ClickEvent.runCommand(
-                            "/ploceus project info " + project.getKey().value())));
-        }
-        sendPagination(player, page.pageNumber(), page.hasPrevious(), page.hasNext(),
-                "/ploceus project list ");
+        page.items().forEach(project -> player.sendMessage(projectLine(project)));
+        sendPagination(player, page, CommandLinks::projectList);
     }
 
     @Override
@@ -64,21 +58,20 @@ public class ChatUi implements ProjectUi {
     @Override
     public void worldList(Player player, Project project, Page<ProjectWorld> page) {
         page.items().forEach(world -> player.sendMessage(worldLine(world)));
-        sendPagination(player, page.pageNumber(), page.hasPrevious(), page.hasNext(),
-                "/ploceus world list " + project.getKey().value() + " ");
+        sendPagination(player, page,
+                displayPage -> CommandLinks.worldList(project.getKey().value(), displayPage));
     }
 
     @Override
     public void unassignedWorlds(Player player, Page<ProjectWorld> page) {
         page.items().forEach(world -> player.sendMessage(worldLine(world)));
-        sendPagination(player, page.pageNumber(), page.hasPrevious(), page.hasNext(),
-                "/ploceus world list-unassigned ");
+        sendPagination(player, page, CommandLinks::unassignedWorlds);
     }
 
     @Override
     public void searchPrompt(Player player) {
         player.sendMessage(Messages.chat("search.prompt")
-                .clickEvent(ClickEvent.suggestCommand("/ploceus search ")));
+                .clickEvent(ClickEvent.suggestCommand(CommandLinks.searchPrompt())));
     }
 
     @Override
@@ -88,11 +81,7 @@ public class ChatUi implements ProjectUi {
             return;
         }
         player.sendMessage(Messages.chat("search.results", placeholder("term", term)));
-        projects.items().forEach(project -> player.sendMessage(Messages.get("project.entry",
-                        placeholder("name", project.getDisplayName()),
-                        placeholder("worlds", String.valueOf(project.getWorldCount())),
-                        Messages.component("tags", tagList(project)))
-                .clickEvent(ClickEvent.runCommand("/ploceus project info " + project.getKey().value()))));
+        projects.items().forEach(project -> player.sendMessage(projectLine(project)));
         worlds.items().forEach(world -> player.sendMessage(worldLine(world)));
     }
 
@@ -101,21 +90,21 @@ public class ChatUi implements ProjectUi {
     @Override
     public void createProjectForm(Player player) {
         player.sendMessage(Messages.chat("form.key")
-                .clickEvent(ClickEvent.suggestCommand("/ploceus project create ")));
+                .clickEvent(ClickEvent.suggestCommand(CommandLinks.createProjectPrompt())));
     }
 
     @Override
     public void editProjectForm(Player player, Project project) {
         player.sendMessage(Messages.chat("form.displayName")
                 .clickEvent(ClickEvent.suggestCommand(
-                        "/ploceus project rename " + project.getKey().value() + " ")));
+                        CommandLinks.renameProjectPrompt(project.getKey().value()))));
     }
 
     @Override
     public void createWorldForm(Player player, Project project, String suggestedName, List<String> generators) {
         player.sendMessage(Messages.chat("form.displayName")
-                .clickEvent(ClickEvent.suggestCommand("/ploceus world create "
-                        + project.getKey().value() + " " + suggestedName)));
+                .clickEvent(ClickEvent.suggestCommand(
+                        CommandLinks.createWorld(project.getKey().value(), suggestedName))));
     }
 
     @Override
@@ -129,8 +118,7 @@ public class ChatUi implements ProjectUi {
                     placeholder("old", entry.getOldValue()),
                     placeholder("new", entry.getNewValue())));
         }
-        sendPagination(player, entries.pageNumber(), entries.hasPrevious(), entries.hasNext(),
-                "/ploceus audit " + target.value() + " ");
+        sendPagination(player, entries, displayPage -> CommandLinks.audit(target.value(), displayPage));
     }
 
     /// Chat has no modal. It runs the action immediately; the command layer is expected to
@@ -150,6 +138,14 @@ public class ChatUi implements ProjectUi {
         }
     }
 
+    private Component projectLine(Project project) {
+        return Messages.get("project.entry",
+                        placeholder("name", project.getDisplayName()),
+                        placeholder("worlds", String.valueOf(project.getWorldCount())),
+                        Messages.component("tags", tagList(project)))
+                .clickEvent(ClickEvent.runCommand(CommandLinks.projectInfo(project.getKey().value())));
+    }
+
     private Component worldLine(ProjectWorld world) {
         String stateKey = world.getLastVisitedAt() == null
                 ? "world.state.neverVisited"
@@ -157,7 +153,7 @@ public class ChatUi implements ProjectUi {
         return Messages.get("world.entry",
                         placeholder("name", world.getDisplayName()),
                         Messages.component("state", Messages.get(stateKey)))
-                .clickEvent(ClickEvent.runCommand("/ploceus world tp " + world.getKey().value()));
+                .clickEvent(ClickEvent.runCommand(CommandLinks.teleport(world.getKey().value())));
     }
 
     private Component tagList(Project project) {
@@ -169,16 +165,20 @@ public class ChatUi implements ProjectUi {
                 : Component.text(String.join(", ", tagValues));
     }
 
-    private void sendPagination(Player player, int pageNumber, boolean hasPrevious, boolean hasNext,
-                                String commandPrefix) {
+    /// `command` is handed the **1-based** page number to link to, which is the convention
+    /// the commands parse; {@link CommandLinks#previousPage}/{@link CommandLinks#nextPage}
+    /// convert it from the 0-based `Page`. Writing the raw 0-based neighbour into a 1-based
+    /// command is what made "Next" on page 1 re-render page 1, in the project list, the
+    /// unassigned world list and the audit trail alike.
+    private void sendPagination(Player player, Page<?> page, IntFunction<String> command) {
         Component line = Component.empty();
-        if (hasPrevious) {
+        if (page.hasPrevious()) {
             line = line.append(Messages.get("page.previous")
-                    .clickEvent(ClickEvent.runCommand(commandPrefix + (pageNumber - 1))));
+                    .clickEvent(ClickEvent.runCommand(command.apply(CommandLinks.previousPage(page)))));
         }
-        if (hasNext) {
+        if (page.hasNext()) {
             line = line.append(Component.space()).append(Messages.get("page.next")
-                    .clickEvent(ClickEvent.runCommand(commandPrefix + (pageNumber + 1))));
+                    .clickEvent(ClickEvent.runCommand(command.apply(CommandLinks.nextPage(page)))));
         }
         if (!line.equals(Component.empty())) {
             player.sendMessage(line);

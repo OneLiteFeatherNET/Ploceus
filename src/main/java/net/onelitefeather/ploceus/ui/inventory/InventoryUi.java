@@ -14,6 +14,7 @@ import net.onelitefeather.ploceus.PloceusConfig;
 import net.onelitefeather.ploceus.domain.*;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 import net.onelitefeather.ploceus.service.*;
+import net.onelitefeather.ploceus.ui.CommandLinks;
 import net.onelitefeather.ploceus.ui.Messages;
 import net.onelitefeather.ploceus.ui.Page;
 import net.onelitefeather.ploceus.ui.ProjectUi;
@@ -201,29 +202,31 @@ public class InventoryUi implements ProjectUi {
     @Override
     public void searchPrompt(Player player) {
         player.sendMessage(Messages.chat("search.prompt")
-                .clickEvent(ClickEvent.suggestCommand("/ploceus search ")));
+                .clickEvent(ClickEvent.suggestCommand(CommandLinks.searchPrompt())));
     }
 
     @Override
     public void createProjectForm(Player player) {
         player.sendMessage(Messages.chat("form.key")
-                .clickEvent(ClickEvent.suggestCommand("/ploceus project create ")));
+                .clickEvent(ClickEvent.suggestCommand(CommandLinks.createProjectPrompt())));
     }
 
     @Override
     public void editProjectForm(Player player, Project project) {
         player.sendMessage(Messages.chat("form.displayName")
                 .clickEvent(ClickEvent.suggestCommand(
-                        "/ploceus project rename " + project.getKey().value() + " ")));
+                        CommandLinks.renameProjectPrompt(project.getKey().value()))));
     }
 
-    /// World-creation form arrives with Task 18. Falls back to suggesting the command, like
-    /// every other text-input form on this channel.
+    /// An inventory cannot take text input, so this channel hands the player the
+    /// equivalent command with the suggested world name already filled in — the same
+    /// fallback every other text-input form on this channel uses. The full creation form
+    /// (generator, environment, structures, seed) is the dialog channel's screen.
     @Override
     public void createWorldForm(Player player, Project project, String suggestedName, List<String> generators) {
         player.sendMessage(Messages.chat("form.displayName")
-                .clickEvent(ClickEvent.suggestCommand("/ploceus world create "
-                        + project.getKey().value() + " " + suggestedName)));
+                .clickEvent(ClickEvent.suggestCommand(
+                        CommandLinks.createWorld(project.getKey().value(), suggestedName))));
     }
 
     @Override

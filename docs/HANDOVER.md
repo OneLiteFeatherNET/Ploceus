@@ -12,13 +12,10 @@ Stand: 40 Commits auf `feat/ploceus-foundation`, 62 Quell- und 37 Testdateien, 2
 
 ## Bekannte Lücken (kein Fehler, fehlende Funktion)
 
-- **Weltbeschreibungen lassen sich nirgends setzen.** `WorldService.describe` existiert ohne Aufrufer.
-
-- **Projektbeschreibungen nur im Dialog-Kanal.** Wer über Inventar oder Chat arbeitet, kommt nicht heran — kein Befehl nimmt ein Beschreibungsargument.
-
+- **Beschreibungen lassen sich nicht leeren.** `/ploceus project describe` und `/ploceus world describe` setzen sie; ein greedy Textargument kann aber kein leeres Wort aufnehmen. Projektbeschreibungen lassen sich über das Dialog-Formular leeren, Weltbeschreibungen nirgends.
+- **Kein Welt-Bearbeitungsformular.** Weltmetadaten werden ausschließlich per Befehl gepflegt; die drei Kanäle bieten dafür keine Oberfläche. Bewusst nicht gebaut, da es den `ProjectUi`-Vertrag und alle drei Kanäle geändert hätte.
 - **Multiverse 5.8.1 hat keine öffentliche Maven-Koordinate.** Das Jar liegt als 4,6 MB in `libs/` im Repo. Renovate sieht es nicht; ein Update ist ein manueller Binär-Commit.
-
-- **Der Vertragstest über die drei Kanäle ist strukturell, nicht verhaltensbasiert.** Er prüft, dass jeder Kanal jeden Bildschirm implementiert — nicht, dass sie dasselbe tun. Drei der fünf Blocker wären einem Verhaltenstest aufgefallen.
+- **Der Vertragstest über die drei Kanäle ist strukturell, nicht verhaltensbasiert.** Er prüft, dass jeder Kanal jeden Bildschirm implementiert — nicht, dass sie dasselbe tun. Drei der fünf Blocker des Abschlussreviews wären einem Verhaltenstest aufgefallen.
 
 ## Entscheidungen, die ich für dich getroffen habe
 

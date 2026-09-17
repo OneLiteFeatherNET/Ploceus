@@ -9,11 +9,13 @@ Project and world management for the OneLiteFeather team build server.
 
 ## 1. Context
 
-The team build server (`Team-Build-1`) runs Paper 26.2 with Multiverse-Core 5.8.1 and
-holds 76 world folders. Worlds are grouped informally by naming convention only
-(`elytrarace-alien`, `elytrarace-aqua`, `archive-newlobby`, `bak_Survival`). There is no
-record of who built what, no description, no tags, and every world with `auto-load: true`
-is loaded at server start.
+The team build server (`Team-Build-1`) runs Paper 26.2 with Multiverse-Core 5.8.1. Its
+`worlds/` directory holds 76 world folders — named things like `elytrarace-alien`,
+`elytrarace-aqua`, `archive-newlobby`, `bak_Survival` — but Multiverse-Core is only
+configured to manage 6 of them; the rest are untracked leftovers on disk that Multiverse
+never touches, and Ploceus only ever sees the 6. There is no record of who built what, no
+description, no tags, and every *managed* world with `auto-load: true` is loaded at server
+start.
 
 Ploceus introduces a **project** as the grouping unit: a project owns one or more worlds
 and carries authors, tags, descriptions and an audit trail. It also stops the server from
@@ -178,7 +180,7 @@ plugin classloader, otherwise it cannot resolve its dialects. Set it around
 
 Multiverse stays the owner of world lifecycle and world settings. Ploceus stores only
 project membership and metadata, and calls the Multiverse API for actions. No duplicated
-state, no migration pressure on the existing 76 worlds.
+state, no migration pressure on the 6 worlds Multiverse already manages.
 
 Verified against `multiverse-core-5.8.1.jar`:
 
@@ -236,7 +238,10 @@ The key is editable afterwards; the world name is not.
 
 **Caveat to document for operators:** Multiverse loads its worlds before Ploceus is
 enabled, so `setAutoLoad(false)` only takes effect from the *next* server start. The first
-start after installation still loads all 76 worlds.
+start after installation still loads all 6 managed worlds, exactly as before — a small
+number on `Team-Build-1` today, but the import and suppression still matter: it is what
+keeps a growing set of build worlds from silently costing more boot time every time one is
+added, and it is what makes the later idle-unload story possible at all.
 
 ### 8.3 Renaming
 

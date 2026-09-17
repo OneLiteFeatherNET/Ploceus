@@ -107,11 +107,12 @@ construction, so there is no way to build a dialog button that skips this check.
 ## On-server verification checklist
 
 Several tasks in this project's build deliberately skipped their in-game verification step:
-running Ploceus against the real `Team-Build-1` server rewrites `worlds.yml` for all 76
-worlds and creates a new database on first enable — an irreversible change that was never
-approved mid-build. Every check below is still outstanding. **Do this against a throwaway
-copy of `Team-Build-1`, never the live server directly**, until it has been worked through
-once.
+running Ploceus against the real `Team-Build-1` server rewrites `worlds.yml` for the 6
+worlds Multiverse manages there (of 76 world folders on disk, only those 6 are configured
+in Multiverse) and creates a new database on first enable — an irreversible change that
+was never approved mid-build. Every check below is still outstanding. **Do this against a
+throwaway copy of `Team-Build-1`, never the live server directly**, until it has been
+worked through once.
 
 The order matters: earlier phases would expose a fundamental problem (the plugin fails to
 boot, or corrupts the world list) before later phases are worth attempting at all. Each step
@@ -125,9 +126,10 @@ has a concrete, observable pass condition — not a vague "check that it works".
    plugin classloader/context-classloader wiring for Guice + Hibernate + Liquibase under
    Paper is broken — nothing in the unit tests can catch this).
 2. Read the startup log.
-   **Expect:** a line reading `Imported 76 worlds, 0 already known, N key collisions` —
-   confirms `MultiverseAdapter.snapshotAll()` enumerates every real Multiverse world, not
-   just the fixture worlds the unit tests use.
+   **Expect:** a line reading `Imported 6 worlds, 0 already known, N key collisions` —
+   confirms `MultiverseAdapter.snapshotAll()` enumerates every real Multiverse world (there
+   are 76 world folders on disk, but only 6 are configured in Multiverse), not just the
+   fixture worlds the unit tests use.
 3. Still in the startup log.
    **Expect:** a line reading `Disabled auto-load for N of M worlds and saved it to
    worlds.yml. This takes effect from the next server start.` — confirms `setAutoLoad`

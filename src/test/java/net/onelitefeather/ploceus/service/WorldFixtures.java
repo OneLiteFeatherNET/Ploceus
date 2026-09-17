@@ -3,6 +3,7 @@ package net.onelitefeather.ploceus.service;
 import net.onelitefeather.ploceus.domain.*;
 import net.onelitefeather.ploceus.persistence.*;
 import net.onelitefeather.ploceus.platform.MultiverseAdapter;
+import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 
 import java.time.Instant;
 import java.util.*;
@@ -75,21 +76,38 @@ final class WorldFixtures {
 
     private final MultiverseAdapter multiverse;
 
-    /// Default double: an always-succeeding alias mirror, since the real
-    /// `MultiverseAdapter` would call into a `null` `MultiverseCoreApi` and throw as soon
-    /// as `rename` invokes it. Tests that need to see a failed alias mirror pass their own
-    /// `MultiverseAdapter` override instead.
+    /// Runs every scheduler hop in-line, the same double `WorldCreationServiceTest.Fixture`
+    /// and `DialogPermissionsTest` use, so `importService().importOne(...).join()` returns
+    /// immediately without a real thread hop.
+    private final SchedulerAdapter scheduler = new SchedulerAdapter(null) {
+        @Override public void async(Runnable work) { work.run(); }
+        @Override public void sync(Runnable work) { work.run(); }
+    };
+
+    /// Default double: an always-succeeding alias mirror, import and auto-load, since the
+    /// real `MultiverseAdapter` would call into a `null` `MultiverseCoreApi` and throw as
+    /// soon as any of them is invoked. Tests that need to see a failure from one of these
+    /// pass their own `MultiverseAdapter` override instead.
     WorldFixtures() {
         this(new MultiverseAdapter(null, null) {
             @Override
             public OperationResult<Void> setAlias(String worldName, String alias) {
                 return OperationResult.success(null);
             }
+            @Override
+            public OperationResult<Void> setAutoLoad(String worldName, boolean autoLoad) {
+                return OperationResult.success(null);
+            }
+            @Override
+            public OperationResult<String> importWorld(String worldName) {
+                return OperationResult.success(worldName);
+            }
         });
     }
 
     /// Lets a test supply a `MultiverseAdapter` subclass whose methods are overridden to
-    /// return a canned `OperationResult`, e.g. to exercise `rename`'s alias-failure path.
+    /// return a canned `OperationResult`, e.g. to exercise `rename`'s alias-failure path or
+    /// `importOne`'s Multiverse-refusal path.
     WorldFixtures(MultiverseAdapter multiverse) {
         this.multiverse = multiverse;
     }
@@ -99,7 +117,7 @@ final class WorldFixtures {
     }
 
     WorldImportService importService() {
-        return new WorldImportService(worlds, auditService);
+        return new WorldImportService(worlds, auditService, multiverse, scheduler);
     }
 
     AuditEntry lastAudit() { return audit.getLast(); }

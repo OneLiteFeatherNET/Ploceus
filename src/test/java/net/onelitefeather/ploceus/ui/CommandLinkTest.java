@@ -51,6 +51,9 @@ class CommandLinkTest {
         links.put("audit", CommandLinks.audit("elytrarace", 2));
         links.put("teleport", CommandLinks.teleport("elytrarace-alien"));
         links.put("createWorld", CommandLinks.createWorld("elytrarace", "elytrarace-desert"));
+        links.put("potentialWorlds", CommandLinks.potentialWorlds());
+        links.put("potentialWorlds(page)", CommandLinks.potentialWorlds(2));
+        links.put("importWorld", CommandLinks.importWorld("elytrarace-swamp"));
         return links;
     }
 

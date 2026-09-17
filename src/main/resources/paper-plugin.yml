@@ -46,6 +46,9 @@ permissions:
   ploceus.world.create:
     description: 'Create a world through Multiverse from a project preset.'
     default: op
+  ploceus.world.import:
+    description: 'Bring an existing, Multiverse-unmanaged world folder under Ploceus.'
+    default: op
   ploceus.world.assign:
     description: 'Assign a world to a project, or return it to the unassigned pool.'
     default: op
@@ -72,6 +75,7 @@ permissions:
       ploceus.project.delete: true
       ploceus.world.list: true
       ploceus.world.create: true
+      ploceus.world.import: true
       ploceus.world.assign: true
       ploceus.world.edit: true
       ploceus.world.teleport: true

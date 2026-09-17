@@ -42,7 +42,7 @@ class DialogDegradationTest {
     /// All the services are `null` on purpose: a screen that touches one before checking the
     /// permission would fail this test with an NPE of its own, which is exactly the property
     /// being asserted — the check comes first.
-    private static final DialogUi UI = new DialogUi(null, null, null, null, null, null, null, null);
+    private static final DialogUi UI = new DialogUi(null, null, null, null, null, null, null, null, null, null);
 
     private static Map<String, Consumer<Player>> screens() {
         Project project = new Project(PloceusKey.of("elytrarace"), "Elytra Race");
@@ -59,6 +59,8 @@ class DialogDegradationTest {
         screens.put("projectDetail", player -> UI.projectDetail(player, project, List.of(world)));
         screens.put("worldList", player -> UI.worldList(player, project, worlds));
         screens.put("unassignedWorlds", player -> UI.unassignedWorlds(player, worlds));
+        screens.put("importableWorlds", player -> UI.importableWorlds(player,
+                new Page<>(List.of("elytrarace-desert"), 0, 10, 1)));
         screens.put("searchPrompt", UI::searchPrompt);
         screens.put("searchResults", player -> UI.searchResults(player, "winter", projects, worlds));
         screens.put("createProjectForm", UI::createProjectForm);

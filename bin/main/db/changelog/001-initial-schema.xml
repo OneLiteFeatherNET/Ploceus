@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                       http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="001-tag" author="ploceus">
+        <createTable tableName="ploceus_tag">
+            <column name="tag_key" type="VARCHAR(255)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="001-project" author="ploceus">
+        <createTable tableName="ploceus_project">
+            <column name="project_key" type="VARCHAR(255)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="display_name" type="VARCHAR(255)"><constraints nullable="false"/></column>
+            <column name="description" type="VARCHAR(2000)"/>
+            <column name="status" type="VARCHAR(32)"><constraints nullable="false"/></column>
+            <column name="default_generator" type="VARCHAR(255)"/>
+            <column name="default_generator_settings" type="VARCHAR(1000)"/>
+            <column name="default_environment" type="VARCHAR(32)"/>
+            <column name="default_generate_structures" type="BOOLEAN"/>
+            <column name="default_biome" type="VARCHAR(255)"/>
+            <column name="created_by" type="UUID"/>
+            <column name="created_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_by" type="UUID"/>
+            <column name="updated_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="001-world" author="ploceus">
+        <createTable tableName="ploceus_world">
+            <column name="world_key" type="VARCHAR(255)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="world_name" type="VARCHAR(255)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="project_key" type="VARCHAR(255)"/>
+            <column name="display_name" type="VARCHAR(255)"><constraints nullable="false"/></column>
+            <column name="description" type="VARCHAR(2000)"/>
+            <column name="last_visited_at" type="TIMESTAMP"/>
+            <column name="idle_unload_minutes" type="INT"/>
+            <column name="pinned" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="UUID"/>
+            <column name="created_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_by" type="UUID"/>
+            <column name="updated_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="ploceus_world" baseColumnNames="project_key"
+                                 constraintName="fk_world_project"
+                                 referencedTableName="ploceus_project"
+                                 referencedColumnNames="project_key"
+                                 onDelete="SET NULL"/>
+        <createIndex tableName="ploceus_world" indexName="idx_world_project">
+            <column name="project_key"/>
+        </createIndex>
+        <createIndex tableName="ploceus_world" indexName="idx_world_last_visited">
+            <column name="last_visited_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="001-join-tables" author="ploceus">
+        <createTable tableName="ploceus_project_tag">
+            <column name="project_key" type="VARCHAR(255)"><constraints nullable="false"/></column>
+            <column name="tag_key" type="VARCHAR(255)"><constraints nullable="false"/></column>
+        </createTable>
+        <addPrimaryKey tableName="ploceus_project_tag" columnNames="project_key, tag_key"/>
+
+        <createTable tableName="ploceus_world_tag">
+            <column name="world_key" type="VARCHAR(255)"><constraints nullable="false"/></column>
+            <column name="tag_key" type="VARCHAR(255)"><constraints nullable="false"/></column>
+        </createTable>
+        <addPrimaryKey tableName="ploceus_world_tag" columnNames="world_key, tag_key"/>
+
+        <createTable tableName="ploceus_project_author">
+            <column name="project_key" type="VARCHAR(255)"><constraints nullable="false"/></column>
+            <column name="player_uuid" type="UUID"><constraints nullable="false"/></column>
+            <column name="last_known_name" type="VARCHAR(64)"><constraints nullable="false"/></column>
+            <column name="role" type="VARCHAR(64)"/>
+        </createTable>
+
+        <createTable tableName="ploceus_world_author">
+            <column name="world_key" type="VARCHAR(255)"><constraints nullable="false"/></column>
+            <column name="player_uuid" type="UUID"><constraints nullable="false"/></column>
+            <column name="last_known_name" type="VARCHAR(64)"><constraints nullable="false"/></column>
+            <column name="role" type="VARCHAR(64)"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="001-audit" author="ploceus">
+        <createTable tableName="ploceus_audit">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="target_type" type="VARCHAR(16)"><constraints nullable="false"/></column>
+            <column name="target_id" type="VARCHAR(255)"><constraints nullable="false"/></column>
+            <column name="actor_uuid" type="UUID"/>
+            <column name="actor_name" type="VARCHAR(64)"><constraints nullable="false"/></column>
+            <column name="action" type="VARCHAR(32)"><constraints nullable="false"/></column>
+            <column name="field" type="VARCHAR(64)"/>
+            <column name="old_value" type="VARCHAR(2000)"/>
+            <column name="new_value" type="VARCHAR(2000)"/>
+            <column name="occurred_at" type="TIMESTAMP"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="ploceus_audit" indexName="idx_audit_target">
+            <column name="target_id"/>
+        </createIndex>
+        <createIndex tableName="ploceus_audit" indexName="idx_audit_at">
+            <column name="occurred_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="001-player-preference" author="ploceus">
+        <createTable tableName="ploceus_player_preference">
+            <column name="player_uuid" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="ui_channel" type="VARCHAR(16)"/>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>

@@ -104,8 +104,9 @@ public class PloceusModule extends AbstractModule {
         return new WorldService(worlds, projects, tags, audit, multiverse);
     }
 
-    @Provides @Singleton WorldImportService importService(WorldRepository worlds, AuditService audit) {
-        return new WorldImportService(worlds, audit);
+    @Provides @Singleton WorldImportService importService(WorldRepository worlds, AuditService audit,
+                                                           MultiverseAdapter multiverse, SchedulerAdapter scheduler) {
+        return new WorldImportService(worlds, audit, multiverse, scheduler);
     }
 
     @Provides @Singleton NameSuggester nameSuggester() {

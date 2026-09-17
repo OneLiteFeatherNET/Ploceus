@@ -1,0 +1,83 @@
+name: Ploceus
+version: '${version}'
+main: net.onelitefeather.ploceus.PloceusPlugin
+bootstrapper: net.onelitefeather.ploceus.PloceusBootstrap
+# Same class as the bootstrapper on purpose; without this key Paper never calls
+# PloceusBootstrap.classloader(...) and Hibernate/HikariCP/Liquibase/H2/PostgreSQL are
+# missing from the runtime classpath. See PloceusBootstrap's Javadoc.
+loader: net.onelitefeather.ploceus.PloceusBootstrap
+api-version: '26.2'
+description: 'Project and world management on top of Multiverse'
+authors: [ OneLiteFeather ]
+website: 'https://github.com/OneLiteFeatherNET/Ploceus'
+dependencies:
+  server:
+    Multiverse-Core:
+      load: BEFORE
+      required: true
+      join-classpath: true
+
+# Declared so LuckPerms, /help and any permission editor can see the whole tree without
+# reading the source. Reading and teleporting default to everyone on a build server;
+# everything that changes state defaults to operators.
+#
+# ploceus.use is effectively required: without it the dialog channel has no navigation it is
+# allowed to render and steps aside to chat, and neither of the other channels can offer a
+# back button either.
+permissions:
+  ploceus.use:
+    description: 'Open the Ploceus interface at all. Required by every other node in practice.'
+    default: true
+  ploceus.project.list:
+    description: 'List projects and open a project''s detail screen.'
+    default: true
+  ploceus.project.create:
+    description: 'Create a project.'
+    default: op
+  ploceus.project.edit:
+    description: 'Rename a project, change its description, tags and status.'
+    default: op
+  ploceus.project.delete:
+    description: 'Delete a project. Its worlds return to the unassigned pool.'
+    default: op
+  ploceus.world.list:
+    description: 'List a project''s worlds and the unassigned pool.'
+    default: true
+  ploceus.world.create:
+    description: 'Create a world through Multiverse from a project preset.'
+    default: op
+  ploceus.world.import:
+    description: 'Bring an existing, Multiverse-unmanaged world folder under Ploceus.'
+    default: op
+  ploceus.world.assign:
+    description: 'Assign a world to a project, or return it to the unassigned pool.'
+    default: op
+  ploceus.world.edit:
+    description: 'Change a world''s display name, description, tags, idle-unload minutes and pinned flag.'
+    default: op
+  ploceus.world.teleport:
+    description: 'Load a world on demand and teleport into it.'
+    default: true
+  ploceus.search:
+    description: 'Search projects and worlds.'
+    default: true
+  ploceus.audit:
+    description: 'Read the audit trail of a project or world.'
+    default: op
+  ploceus.admin:
+    description: 'Everything Ploceus can do, including the destructive operations.'
+    default: op
+    children:
+      ploceus.use: true
+      ploceus.project.list: true
+      ploceus.project.create: true
+      ploceus.project.edit: true
+      ploceus.project.delete: true
+      ploceus.world.list: true
+      ploceus.world.create: true
+      ploceus.world.import: true
+      ploceus.world.assign: true
+      ploceus.world.edit: true
+      ploceus.world.teleport: true
+      ploceus.search: true
+      ploceus.audit: true

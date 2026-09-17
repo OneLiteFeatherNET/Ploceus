@@ -26,7 +26,7 @@ class InventoryPermissionsTest {
     /// `InventoryUi`'s other constructor arguments are never touched on the denied path
     /// tested here (no service call, no `Plugin` use), so they are safely left `null`.
     private final InventoryUi inventoryUi =
-            new InventoryUi(null, null, null, null, null, null, null);
+            new InventoryUi(null, null, null, null, null, null, null, null, null);
 
     /// A `Player` test double whose `hasPermission` always answers `false`, in the same
     /// style `DialogPermissionsTest.playerDeniedEverything` uses for the dialog channel.

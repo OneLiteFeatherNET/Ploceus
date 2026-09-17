@@ -45,12 +45,13 @@ public class PloceusCommands {
     private final NameSuggester suggester;
     private final MultiverseAdapter multiverse;
     private final WorldCreationService creation;
+    private final WorldImportService importService;
 
     @Inject
     public PloceusCommands(ProjectService projects, WorldService worlds, WorldLifecycleService lifecycle,
                            AuditService audit, UiRouter router, SchedulerAdapter scheduler,
                            PloceusConfig config, NameSuggester suggester, MultiverseAdapter multiverse,
-                           WorldCreationService creation) {
+                           WorldCreationService creation, WorldImportService importService) {
         this.projects = projects;
         this.worlds = worlds;
         this.lifecycle = lifecycle;
@@ -61,6 +62,7 @@ public class PloceusCommands {
         this.suggester = suggester;
         this.multiverse = multiverse;
         this.creation = creation;
+        this.importService = importService;
     }
 
     private Actor actorOf(Player player) {
@@ -231,6 +233,42 @@ public class PloceusCommands {
             }));
         }, () -> scheduler.sync(() -> router.forPlayer(player).feedback(player,
                 OperationResult.failure("project.unknown", projectKey.asString()), ""))));
+    }
+
+    /// The operator's way to *see* what `/ploceus world import` can act on: on the real
+    /// server that started this feature, 6 worlds were under Multiverse's management while
+    /// 76 world folders sat on disk, so tab completion alone is not enough to discover them.
+    @Command("ploceus|projects|pj world potential [page]")
+    @Permission("ploceus.world.list")
+    public void potentialWorlds(Player player, @Argument("page") @Default("1") int page) {
+        scheduler.async(() -> {
+            Page<String> result = Page.of(multiverse.potentialWorlds(), Math.max(0, page - 1),
+                    config.entriesPerPage());
+            scheduler.sync(() -> router.forPlayer(player).importableWorlds(player, result));
+        });
+    }
+
+    /// Brings one Multiverse-visible-but-unmanaged world folder under Ploceus. Separate
+    /// permission node from `ploceus.world.create`: creating asks Multiverse to generate a
+    /// brand-new world, importing only registers one that already exists on disk, and an
+    /// operator may reasonably be trusted with one but not the other. `importService.importOne`
+    /// crosses threads on its own (only the Multiverse call needs the main thread), the same
+    /// contract `WorldCreationService.create` and `MultiverseAdapter.teleport` share, so the
+    /// continuation still needs its own hop back to main before touching the player.
+    @Command("ploceus|projects|pj world import <folderName>")
+    @Permission("ploceus.world.import")
+    public void importWorld(Player player,
+                            @Argument(value = "folderName", suggestions = "potentialWorlds") String folderName) {
+        importService.importOne(folderName, actorOf(player)).thenAccept(result -> scheduler.sync(() -> {
+            router.forPlayer(player).feedback(player,
+                    result.map(WorldImportService.ImportOutcome::world), "world.imported");
+            if (result instanceof OperationResult.Success<WorldImportService.ImportOutcome> success) {
+                success.value().warnings().forEach(warning -> player.sendMessage(
+                        net.onelitefeather.ploceus.ui.Messages.chat(warning.messageKey(),
+                                net.onelitefeather.ploceus.ui.Messages.placeholder(
+                                        "detail", warning.detail()))));
+            }
+        }));
     }
 
     @Command("ploceus|projects|pj world assign <worldKey> <projectKey>")

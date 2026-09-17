@@ -72,6 +72,18 @@ public final class CommandLinks {
         return ROOT + " world create " + projectKey + " " + worldName;
     }
 
+    public static String potentialWorlds() {
+        return ROOT + " world potential";
+    }
+
+    public static String potentialWorlds(int displayPage) {
+        return potentialWorlds() + " " + displayPage;
+    }
+
+    public static String importWorld(String folderName) {
+        return ROOT + " world import " + folderName;
+    }
+
     // --- deliberately incomplete: suggestions the player finishes typing themselves ---
 
     /// Suggestion prefix, not a runnable command: the player types the search term.

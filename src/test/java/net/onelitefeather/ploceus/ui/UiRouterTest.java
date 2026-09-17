@@ -273,6 +273,7 @@ class UiRouterTest {
         @Override public void projectDetail(Player player, Project project, List<ProjectWorld> worlds) { }
         @Override public void worldList(Player player, Project project, Page<ProjectWorld> page) { }
         @Override public void unassignedWorlds(Player player, Page<ProjectWorld> page) { }
+        @Override public void importableWorlds(Player player, Page<String> page) { }
         @Override public void searchPrompt(Player player) { }
         @Override public void searchResults(Player player, String term, Page<Project> projects,
                                             Page<ProjectWorld> worlds) { }

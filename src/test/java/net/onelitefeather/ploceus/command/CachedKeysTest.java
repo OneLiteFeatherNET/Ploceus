@@ -18,8 +18,8 @@ class CachedKeysTest {
     private final AtomicInteger queries = new AtomicInteger();
     private final AtomicLong clock = new AtomicLong();
 
-    private CachedKeys cache(Duration ttl) {
-        return new CachedKeys(() -> {
+    private CachedKeys<PloceusKey> cache(Duration ttl) {
+        return new CachedKeys<>(() -> {
             queries.incrementAndGet();
             return List.of(PloceusKey.of("elytrarace"));
         }, clock::get, ttl);
@@ -27,7 +27,7 @@ class CachedKeysTest {
 
     @Test
     void aBurstOfKeystrokesCostsOneQuery() {
-        CachedKeys keys = cache(Duration.ofSeconds(2));
+        CachedKeys<PloceusKey> keys = cache(Duration.ofSeconds(2));
 
         for (int keystroke = 0; keystroke < 12; keystroke++) {
             clock.addAndGet(Duration.ofMillis(80).toNanos());
@@ -39,7 +39,7 @@ class CachedKeysTest {
 
     @Test
     void theListIsRereadOnceTheTimeToLiveHasPassed() {
-        CachedKeys keys = cache(Duration.ofSeconds(2));
+        CachedKeys<PloceusKey> keys = cache(Duration.ofSeconds(2));
 
         keys.get();
         clock.addAndGet(Duration.ofSeconds(3).toNanos());
@@ -53,7 +53,7 @@ class CachedKeysTest {
     @Test
     void theCacheStillWorksWhenTheClockIsNearOverflow() {
         clock.set(Long.MAX_VALUE - Duration.ofMillis(500).toNanos());
-        CachedKeys keys = cache(Duration.ofSeconds(2));
+        CachedKeys<PloceusKey> keys = cache(Duration.ofSeconds(2));
 
         keys.get();
         clock.addAndGet(Duration.ofMillis(100).toNanos());

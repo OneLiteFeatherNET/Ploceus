@@ -53,6 +53,93 @@ the inventory channel automatically. If a protocol bump makes the threshold wron
 here — no plugin release needed. Players can also choose explicitly with `/ploceus ui
 dialog|inventory|chat`, which overrides the protocol-based default until they choose again.
 
+## Observability
+
+### Logging
+
+Ploceus logs through SLF4J (`org.slf4j.Logger`), one logger per class
+(`LoggerFactory.getLogger(ThisClass.class)`), not `plugin.getLogger()`. Paper supplies the
+SLF4J API and its Log4j2 binding at runtime, so nothing extra needs installing — but the
+practical effect on the console is that Ploceus's own log lines now show the emitting class
+(e.g. `[net.onelitefeather.ploceus.PloceusPlugin] Ploceus enabled`) instead of the `[Ploceus]`
+short prefix `plugin.getLogger()` used to produce. This matches how Liquibase's own log lines
+already appear (`[liquibase.database] ...`, `[liquibase.util] ...`) — it is a deliberate,
+visible change from earlier versions of this plugin, not a regression.
+
+### No more `[STDOUT]` lines from Liquibase
+
+Every startup used to log one `[STDOUT] [liquibase.ui.ConsoleUIService] ...` line per
+changeset already applied — a single "Database is up to date" line once the schema has
+caught up, or one line per changeset on a fresh database. That came from Liquibase's default
+`ConsoleUIService`, which writes straight to `System.out`; Paper captures raw stdout/stderr
+writes and tags them `[STDOUT]`/`[STDERR]` in the console and log file. Ploceus's schema
+migration now runs inside a Liquibase `Scope` that installs `liquibase.ui.LoggerUIService`
+instead, so that summary line goes through the same SLF4J-backed channel as every other
+Liquibase log line — `[liquibase.ui.LoggerUIService] Database is up to date, no changesets to
+execute` (or the per-changeset lines on a fresh database), not `[STDOUT]`. To confirm on your
+own server: after a clean start where nothing needed migrating, `grep STDOUT` the log — it
+should find nothing.
+
+### OpenTelemetry
+
+Ploceus depends on `io.opentelemetry:opentelemetry-api` only, bundled directly into the
+plugin jar with its real `io.opentelemetry.*` package names — not shaded/relocated the way
+Guice or Cloud are, and not resolved at server startup through the Maven library resolver the
+persistence stack uses (see `build.gradle.kts` for why). On its own, with no agent attached,
+every span and metric call is a verified no-op: nothing is exported, nothing is recorded nor
+added to the console, and Ploceus behaves identically with or without the agent attached.
+
+**To enable tracing and metrics**, attach the OpenTelemetry Java agent already present in this
+server's directory (`opentelemetry-javaagent.jar`, version 2.16.0) with a `-javaagent` flag on
+the JVM command line the server is started with, before the `-jar paper-*.jar` argument:
+
+```
+java -javaagent:/path/to/opentelemetry-javaagent.jar ... -jar paper-*.jar
+```
+
+Where exactly to add that flag depends on whatever launches the server (a shell script, a
+systemd unit, a process manager) — no start script for that shipped with this check, so this
+was not something that could be verified end-to-end here. Restart the server after adding it.
+
+**Environment variables** (read by the agent's bundled SDK autoconfigure module before the
+server starts — set them in the process environment, not in `config.yml`):
+
+| Variable | Purpose |
+|---|---|
+| `OTEL_SERVICE_NAME` | The service name spans/metrics are reported under, e.g. `ploceus`. Defaults to `unknown_service:java` if unset. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Where to send spans/metrics (an OTLP collector URL). Nothing is exported anywhere until this, or an exporter-specific endpoint variable, is set. |
+| `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` | Which exporter to use per signal (`otlp`, `console`, `none`, ...). `console` is useful for a first smoke test — it prints spans/metrics to stdout instead of requiring a collector. |
+| `OTEL_RESOURCE_ATTRIBUTES` | Extra `key=value` resource attributes attached to everything, e.g. `deployment.environment=production`. |
+
+These are standard variables read by every OpenTelemetry Java agent's autoconfigure module,
+not something Ploceus defines itself — see the upstream OpenTelemetry Java agent documentation
+for the full list. This has not been run against a live collector as part of this change; what
+is verified is that the instrumentation does not throw with no SDK registered (see
+`OpenTelemetryInstrumentationTest`, `MultiverseAdapterInstrumentationTest`) and that the
+documented spans/attributes below are actually produced, against a real in-memory
+OpenTelemetry SDK in the test suite.
+
+**Spans Ploceus emits:**
+
+| Span | Where | Attributes | Meaning |
+|---|---|---|---|
+| `ploceus.world.load` | `MultiverseAdapter` | `ploceus.world.name` | One Multiverse world-load call. Error status and a recorded exception on failure. |
+| `ploceus.world.unload` | `MultiverseAdapter` | `ploceus.world.name` | One Multiverse world-unload call, including the ones the reaper triggers. Error status and a recorded exception on failure. |
+| `ploceus.world.create` | `WorldCreationService` | `ploceus.world.name`, `ploceus.project.key` | The full world-creation operation: the database row reservation, the Multiverse call, auto-load/alias mirroring, and the audit writes. Error status on a failed or thrown creation. |
+| `ploceus.world.import` | `WorldImportService` | `ploceus.import.candidate_count`, `ploceus.import.imported_count` | The startup import of existing Multiverse worlds into Ploceus. |
+| `ploceus.reaper.pass` | `WorldLifecycleService` | `ploceus.reaper.snapshot_count`, `ploceus.reaper.candidate_count`, `ploceus.reaper.unloaded_count` | One run of the idle-world reaper, from its initial snapshot to its last unload. |
+
+**Metrics Ploceus emits:**
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `ploceus.worlds.loaded` | up-down counter | Worlds currently loaded, as tracked through Ploceus's own load/unload calls (seeded from the startup snapshot, not re-derived from Multiverse on every read). A world loaded or unloaded by something other than Ploceus — another plugin, an operator's `/mv load` — is not reflected here. |
+| `ploceus.worlds.imported` | counter, attribute `ploceus.import.outcome` (`imported` / `already_known` / `key_collision`) | Worlds processed by the startup import, by outcome. |
+| `ploceus.reaper.worlds_unloaded` | counter | Worlds unloaded by the idle-world reaper, cumulative across every pass. |
+
+Database calls (Hibernate/JDBC) are already covered by the javaagent's own automatic JDBC
+instrumentation once it is attached; Ploceus does not duplicate that with its own spans.
+
 ## Permissions
 
 The table below is read directly off `@Permission` annotations in

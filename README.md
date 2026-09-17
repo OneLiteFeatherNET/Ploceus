@@ -1,63 +1,72 @@
 # Ploceus
 
-Projekt- und Weltverwaltung für Paper-Server auf Basis von
+Project and world management for Paper servers, built on
 [Multiverse-Core](https://github.com/Multiverse/Multiverse-Core).
 
-Ein *Projekt* bündelt mehrere Welten, die zusammengehören — ein Minigame, ein Event, ein
-Bauthema. Jedes Projekt und jede Welt trägt Beschreibung, Tags, Autoren und eine lückenlose
-Änderungshistorie. Welten werden erst geladen, wenn sie jemand betritt, und wieder entladen,
-wenn längere Zeit niemand darin war.
+A *project* groups worlds that belong together — a minigame, an event, a build theme. Every
+project and every world carries a description, tags, authors and a complete change history.
+Worlds load when somebody enters them and unload again once nobody has been there for a while.
 
-*Ploceus* ist die Gattung der Webervögel: Sie bauen kunstvolle Nester und hängen viele davon
-in denselben Baum.
+*Ploceus* is the weaverbird genus: they build elaborate nests and hang many of them in the
+same tree.
 
-## Was es tut
+## What it does
 
-- **Projekte** mit Beschreibung, Tags, Autoren und Generator-Vorgaben für neue Welten
-- **Welten zuordnen**, umbenennen, anheften, Leerlaufzeit je Welt setzen
-- **Welten anlegen** mit projektweiten Generator-Vorgaben und Namensvorschlägen
-- **Welten importieren**, die auf der Platte liegen, aber von Multiverse noch nicht verwaltet werden
-- **Bedarfsgesteuertes Laden**: beim Serverstart wird nichts geladen, was niemand braucht
-- **Automatisches Entladen** leerer Welten nach einstellbarer Leerlaufzeit
-- **Audit-Spur** für jede Änderung: wer, wann, was vorher, was nachher
+- **Projects** with descriptions, tags, authors and generator defaults for new worlds
+- **Assign worlds** to projects, rename, pin, and set a per-world idle timeout
+- **Create worlds** using the project's generator defaults, with name suggestions
+- **Import worlds** that exist on disk but are not yet managed by Multiverse
+- **On-demand loading**: nothing is loaded at server start that nobody needs
+- **Idle unloading** of empty worlds after a configurable timeout
+- **Audit trail** for every change: who, when, what before, what after
 
-## Bedienung
+## Using it
 
-Drei gleichwertige Oberflächen, je nach Client automatisch gewählt:
+Three equivalent interfaces, chosen automatically per client:
 
-| Kanal | wann |
+| Channel | When |
 |---|---|
-| **Dialog** | moderne Clients — die eigentliche Oberfläche |
-| **Inventar** | ältere Clients ohne Dialog-Unterstützung, dazu als visueller Welten-Browser |
-| **Chat** | letzter Rückfall, funktioniert auch auf der Konsole |
+| **Dialog** | modern clients — the primary interface |
+| **Inventory** | clients too old for the Dialog API, and as a visual world browser |
+| **Chat** | last resort, and the only one that works from the console |
 
-Manuell umschalten mit `/ploceus ui dialog|inventory|chat`.
+Switch manually with `/ploceus ui dialog|inventory|chat`.
 
-## Voraussetzungen
+## Requirements
 
-- Paper **26.2** oder neuer, Java **25**
+- Paper **26.2** or newer, Java **25**
 - Multiverse-Core **5.8.1**
-- Datenbank: H2 (Standard, keine Einrichtung nötig) oder PostgreSQL
+- A database: H2 (default, no setup) or PostgreSQL
 
-## Einrichtung
+## Installation
 
-Jar nach `plugins/` legen und den Server starten. Das Schema wird automatisch angelegt,
-vorhandene Multiverse-Welten werden als „nicht zugeordnet" übernommen.
+Drop the jar into `plugins/` and start the server. The schema is created automatically and
+existing Multiverse worlds are picked up as *unassigned*.
 
-Für PostgreSQL in `plugins/Ploceus/config.yml` den Abschnitt `database` umstellen.
+For PostgreSQL, adjust the `database` section in `plugins/Ploceus/config.yml`.
 
-`docs/operations.md` beschreibt den Betrieb: Berechtigungen, Entlade-Verhalten,
-Datenbankwechsel, OpenTelemetry-Anbindung und eine Prüfliste für die erste Inbetriebnahme.
+See [docs/operations.md](docs/operations.md) for operating the plugin: permissions, unload
+behaviour, switching databases, OpenTelemetry wiring, and a checklist for the first run.
 
-## Bauen
+## Building
+
+Multiverse-Core 5.8.1 is **not published to any public Maven repository**, so the build needs
+the jar supplied locally:
 
 ```bash
+mkdir -p libs
+cp /path/to/your/server/plugins/multiverse-core-5.8.1.jar libs/
 ./gradlew build
 ```
 
-Die PostgreSQL-Integrationstests brauchen einen laufenden Docker-Daemon; ohne ihn werden sie
-übersprungen statt zu scheitern.
+`libs/` is intentionally not tracked — redistributing a third-party binary is not this
+repository's job. Once the jar is mirrored to an internal Maven repository, replace the file
+dependency in `build.gradle.kts` with the coordinate; the version catalog entry is already
+there.
 
-## Lizenz
+The PostgreSQL integration tests need a running Docker daemon. Without one they skip rather
+than fail.
 
-MIT — siehe [LICENSE](LICENSE).
+## License
+
+MIT — see [LICENSE](LICENSE).

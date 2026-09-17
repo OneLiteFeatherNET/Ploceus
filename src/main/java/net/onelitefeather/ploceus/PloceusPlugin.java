@@ -15,10 +15,14 @@ import net.onelitefeather.ploceus.service.WorldLifecycleService;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.hibernate.SessionFactory;
 import org.mvplugins.multiverse.core.MultiverseCoreApi;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
 public final class PloceusPlugin extends JavaPlugin {
+
+    private static final Logger log = LoggerFactory.getLogger(PloceusPlugin.class);
 
     private HikariDataSource dataSource;
     private SessionFactory sessionFactory;
@@ -46,7 +50,7 @@ public final class PloceusPlugin extends JavaPlugin {
                     injector.getInstance(net.onelitefeather.ploceus.listener.UiRouterListener.class), this);
             injector.getInstance(WorldLifecycleService.class).start();
             injector.getInstance(CommandRegistrar.class).register();
-            getLogger().info("Ploceus enabled");
+            log.info("Ploceus enabled");
         });
     }
 
@@ -64,10 +68,11 @@ public final class PloceusPlugin extends JavaPlugin {
         WorldImportService importService = injector.getInstance(WorldImportService.class);
 
         List<WorldSnapshot> snapshots = multiverse.snapshotAll();
+        multiverse.seedLoadedWorldsMetric(snapshots);
         scheduler.async(() -> {
             var summary = importService.importAll(snapshots, Actor.CONSOLE);
-            getLogger().info("Imported %d worlds, %d already known, %d key collisions"
-                    .formatted(summary.imported(), summary.alreadyKnown(), summary.keyCollisions()));
+            log.info("Imported {} worlds, {} already known, {} key collisions",
+                    summary.imported(), summary.alreadyKnown(), summary.keyCollisions());
 
             scheduler.sync(() -> {
                 int eligible = 0;
@@ -82,14 +87,13 @@ public final class PloceusPlugin extends JavaPlugin {
                     }
                 }
                 if (persisted > 0) {
-                    getLogger().info(("Disabled auto-load for %d of %d worlds and saved it to "
-                            + "worlds.yml. This takes effect from the next server start.")
-                            .formatted(persisted, eligible));
+                    log.info("Disabled auto-load for {} of {} worlds and saved it to worlds.yml. "
+                            + "This takes effect from the next server start.", persisted, eligible);
                 }
                 if (persisted < eligible) {
-                    getLogger().warning(("Could not persist the auto-load change for %d of %d "
-                            + "world(s); see the warnings above for which ones. They will still "
-                            + "auto-load at the next server start.").formatted(eligible - persisted, eligible));
+                    log.warn("Could not persist the auto-load change for {} of {} world(s); see "
+                            + "the warnings above for which ones. They will still auto-load at "
+                            + "the next server start.", eligible - persisted, eligible);
                 }
             });
         });
@@ -125,15 +129,14 @@ public final class PloceusPlugin extends JavaPlugin {
                 dataSource.close();
             }
         });
-        getLogger().info("Ploceus disabled");
+        log.info("Ploceus disabled");
     }
 
     private void closeQuietly(String what, Runnable close) {
         try {
             close.run();
         } catch (Throwable throwable) {
-            getLogger().log(java.util.logging.Level.SEVERE,
-                    "Failed to close " + what + "; continuing shutdown", throwable);
+            log.error("Failed to close {}; continuing shutdown", what, throwable);
         }
     }
 

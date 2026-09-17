@@ -2,6 +2,9 @@ package net.onelitefeather.ploceus.platform;
 
 import net.onelitefeather.ploceus.domain.OperationResult;
 import net.onelitefeather.ploceus.domain.PloceusKey;
+import io.opentelemetry.api.metrics.LongUpDownCounter;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -12,13 +15,13 @@ import org.mvplugins.multiverse.core.world.generators.GeneratorProvider;
 import org.mvplugins.multiverse.core.world.options.CreateWorldOptions;
 import org.mvplugins.multiverse.core.world.options.UnloadWorldOptions;
 import org.mvplugins.multiverse.external.vavr.control.Try;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /// Every Multiverse call is wrapped here, and every shaded Vavr `Attempt`/`Try`/`Option`
 /// is turned into an `OperationResult` before it leaves this class.
@@ -60,7 +63,7 @@ import java.util.logging.Logger;
 /// forgetting again.
 public class MultiverseAdapter {
 
-    private static final Logger LOGGER = Logger.getLogger(MultiverseAdapter.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(MultiverseAdapter.class);
 
     private final MultiverseCoreApi multiverseApi;
     private final SchedulerAdapter scheduler;
@@ -68,6 +71,27 @@ public class MultiverseAdapter {
     public MultiverseAdapter(MultiverseCoreApi api, SchedulerAdapter scheduler) {
         this.multiverseApi = api;
         this.scheduler = scheduler;
+    }
+
+    /// "Currently loaded" as tracked by Ploceus' own load/unload calls. Looked up fresh
+    /// (see {@link Telemetry}) rather than cached, and not re-derived from Multiverse on
+    /// every call either: a metrics callback can run on any thread, and every Multiverse call
+    /// must stay on the main thread (see the class Javadoc), so this stays a plain counter
+    /// nudged at the two places worlds actually change state.
+    private static LongUpDownCounter worldsLoadedCounter() {
+        return Telemetry.meter().upDownCounterBuilder("ploceus.worlds.loaded")
+                .setDescription("Worlds currently loaded, as tracked through Ploceus' Multiverse adapter")
+                .setUnit("{world}")
+                .build();
+    }
+
+    /// Seeds the "worlds currently loaded" gauge with the worlds already loaded at startup
+    /// (Multiverse loads its own worlds before this plugin enables), so it reflects reality
+    /// from the first tick instead of climbing from zero as Ploceus happens to touch worlds
+    /// later. Called exactly once, by {@code PloceusPlugin} right after the startup snapshot.
+    public void seedLoadedWorldsMetric(List<WorldSnapshot> snapshots) {
+        long loaded = snapshots.stream().filter(WorldSnapshot::loaded).count();
+        worldsLoadedCounter().add(loaded);
     }
 
     /// The only way into Multiverse from this class, and the reason the threading rule is
@@ -115,10 +139,25 @@ public class MultiverseAdapter {
     }
 
     private OperationResult<Void> loadOnMainThread(String worldName) {
-        var attempt = worldManager().loadWorld(worldName);
-        return attempt.isSuccess()
-                ? OperationResult.success(null)
-                : OperationResult.failure("world.load.failed", String.valueOf(attempt.getFailureReason()));
+        Span span = Telemetry.tracer().spanBuilder("ploceus.world.load")
+                .setAttribute("ploceus.world.name", worldName)
+                .startSpan();
+        try {
+            var attempt = worldManager().loadWorld(worldName);
+            if (attempt.isSuccess()) {
+                worldsLoadedCounter().add(1);
+                return OperationResult.success(null);
+            }
+            String reason = String.valueOf(attempt.getFailureReason());
+            span.setStatus(StatusCode.ERROR, reason);
+            return OperationResult.failure("world.load.failed", reason);
+        } catch (Throwable throwable) {
+            span.recordException(throwable);
+            span.setStatus(StatusCode.ERROR);
+            throw throwable;
+        } finally {
+            span.end();
+        }
     }
 
     public OperationResult<Void> unload(String worldName) {
@@ -126,17 +165,33 @@ public class MultiverseAdapter {
     }
 
     private OperationResult<Void> unloadOnMainThread(String worldName) {
-        // Checked directly against the loaded set: getWorld(...) can be non-empty for an
-        // unloaded world, and calling get() on the (then empty) getLoadedWorld(...) Option
-        // would throw NoSuchElementException.
-        var loaded = worldManager().getLoadedWorld(worldName);
-        if (loaded.isEmpty()) {
-            return OperationResult.failure("world.unknown", worldName);
+        Span span = Telemetry.tracer().spanBuilder("ploceus.world.unload")
+                .setAttribute("ploceus.world.name", worldName)
+                .startSpan();
+        try {
+            // Checked directly against the loaded set: getWorld(...) can be non-empty for an
+            // unloaded world, and calling get() on the (then empty) getLoadedWorld(...) Option
+            // would throw NoSuchElementException.
+            var loaded = worldManager().getLoadedWorld(worldName);
+            if (loaded.isEmpty()) {
+                span.setStatus(StatusCode.ERROR, "world.unknown");
+                return OperationResult.failure("world.unknown", worldName);
+            }
+            var attempt = worldManager().unloadWorld(UnloadWorldOptions.world(loaded.get()));
+            if (attempt.isSuccess()) {
+                worldsLoadedCounter().add(-1);
+                return OperationResult.success(null);
+            }
+            String reason = String.valueOf(attempt.getFailureReason());
+            span.setStatus(StatusCode.ERROR, reason);
+            return OperationResult.failure("world.unload.failed", reason);
+        } catch (Throwable throwable) {
+            span.recordException(throwable);
+            span.setStatus(StatusCode.ERROR);
+            throw throwable;
+        } finally {
+            span.end();
         }
-        var attempt = worldManager().unloadWorld(UnloadWorldOptions.world(loaded.get()));
-        return attempt.isSuccess()
-                ? OperationResult.success(null)
-                : OperationResult.failure("world.unload.failed", String.valueOf(attempt.getFailureReason()));
     }
 
     /// Durable: a `Success` here means auto-load is off both in memory and in `worlds.yml`
@@ -187,13 +242,12 @@ public class MultiverseAdapter {
         if (!mutation.isSuccess()) {
             // Vavr's getCause() is a Throwable. OperationResult.detail is rendered to the
             // player, so the exception goes to the log and the player gets the world name.
-            LOGGER.log(Level.WARNING, "Could not change '" + worldName + "'", mutation.getCause());
+            log.warn("Could not change '{}'", worldName, mutation.getCause());
             return OperationResult.failure(failureMessageKey, worldName);
         }
         Try<Void> saved = save.get();
         if (!saved.isSuccess()) {
-            LOGGER.log(Level.WARNING,
-                    "Changed '" + worldName + "' but could not persist worlds.yml", saved.getCause());
+            log.warn("Changed '{}' but could not persist worlds.yml", worldName, saved.getCause());
             return OperationResult.failure(failureMessageKey, worldName);
         }
         return OperationResult.success(null);

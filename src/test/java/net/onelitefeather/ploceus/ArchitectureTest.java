@@ -73,4 +73,13 @@ class ArchitectureTest {
             .that().resideInAPackage("..ui.chat..")
             .should().dependOnClassesThat().resideInAnyPackage("..ui.dialog..", "..ui.inventory..")
             .because("the three channels must stay interchangeable");
+
+    /// SLF4J is the one logging facade this project uses; `java.util.logging` (Paper's
+    /// `plugin.getLogger()` included) must never come back once a class has been migrated off
+    /// it - this is the regression test for that migration.
+    @ArchTest
+    static final ArchRule loggingGoesThroughSlf4j = noClasses()
+            .should().dependOnClassesThat().resideInAPackage("java.util.logging..")
+            .because("SLF4J is the project's logging framework; java.util.logging (including "
+                    + "Plugin#getLogger()) must not be used");
 }

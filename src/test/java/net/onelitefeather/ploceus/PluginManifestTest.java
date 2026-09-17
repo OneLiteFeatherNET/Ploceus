@@ -141,15 +141,26 @@ class PluginManifestTest {
     /// Reads the sources rather than the bytecode: the nodes are plain string literals
     /// spread across the command layer and two UI channels, and this is the cheapest way to
     /// see all of them at once.
+    ///
+    /// Scoped to `command` and `ui` rather than all of `src/main/java`: `"ploceus.x.y"`-shaped
+    /// string literals are not unique to permission nodes any more - OpenTelemetry span,
+    /// attribute and metric names in `platform`/`service` follow the same dotted-lowercase
+    /// convention on purpose (it is the OTel-recommended shape), and a whole-tree scan would
+    /// wrongly treat every one of them as an undeclared permission node.
     @Test
     void everyPermissionNodeInTheCodeIsDeclaredAndViceVersa() throws Exception {
         Set<String> used = new TreeSet<>();
         Pattern node = Pattern.compile("\"(ploceus(?:\\.[a-z]+)+)\"");
-        try (Stream<Path> sources = Files.walk(Path.of("src/main/java"))) {
-            for (Path source : sources.filter(path -> path.toString().endsWith(".java")).toList()) {
-                Matcher matcher = node.matcher(Files.readString(source));
-                while (matcher.find()) {
-                    used.add(matcher.group(1));
+        List<Path> permissionSourceRoots = List.of(
+                Path.of("src/main/java/net/onelitefeather/ploceus/command"),
+                Path.of("src/main/java/net/onelitefeather/ploceus/ui"));
+        for (Path root : permissionSourceRoots) {
+            try (Stream<Path> sources = Files.walk(root)) {
+                for (Path source : sources.filter(path -> path.toString().endsWith(".java")).toList()) {
+                    Matcher matcher = node.matcher(Files.readString(source));
+                    while (matcher.find()) {
+                        used.add(matcher.group(1));
+                    }
                 }
             }
         }

@@ -3,13 +3,13 @@ package net.onelitefeather.ploceus.service;
 import net.onelitefeather.ploceus.domain.PloceusKey;
 import net.onelitefeather.ploceus.persistence.WorldRepository;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /// Buffers world visits in memory and writes them in one batch per interval.
 ///
@@ -21,7 +21,7 @@ import java.util.logging.Logger;
 /// between the visit and the flush still gets its timestamp instead of losing it.
 public class VisitTracker implements AutoCloseable {
 
-    private static final Logger LOGGER = Logger.getLogger(VisitTracker.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(VisitTracker.class);
 
     private final WorldRepository worlds;
     private final SchedulerAdapter scheduler;
@@ -86,8 +86,8 @@ public class VisitTracker implements AutoCloseable {
         try {
             flush();
         } catch (RuntimeException exception) {
-            LOGGER.log(Level.WARNING, "The final visit flush failed; up to "
-                    + pendingCount() + " world visit timestamp(s) were not written", exception);
+            log.warn("The final visit flush failed; up to {} world visit timestamp(s) "
+                    + "were not written", pendingCount(), exception);
         }
     }
 }

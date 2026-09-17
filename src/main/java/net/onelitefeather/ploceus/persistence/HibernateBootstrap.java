@@ -3,9 +3,11 @@ package net.onelitefeather.ploceus.persistence;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import liquibase.Liquibase;
+import liquibase.Scope;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
+import liquibase.ui.LoggerUIService;
 import net.onelitefeather.ploceus.domain.*;
 import org.hibernate.SessionFactory;
 import org.hibernate.cfg.Configuration;
@@ -32,15 +34,33 @@ public final class HibernateBootstrap {
 
     /// Applies pending Liquibase changesets. Must run before {@link #create}, because
     /// Hibernate is configured to validate rather than create the schema.
+    ///
+    /// Liquibase's root {@link Scope} hardcodes {@link liquibase.ui.ConsoleUIService} as the
+    /// default {@code UIService} (`Scope.java`'s static initializer), and that service's
+    /// `sendMessage` writes straight to {@code System.out} - that is exactly what Paper
+    /// captures and tags `[STDOUT]` in the console (e.g. the "Database is up to date, no
+    /// changesets to execute" summary `UpdateCommandStep` sends after a no-op `update`).
+    /// Every other Liquibase log line already goes through {@code Scope.getCurrentScope()
+    /// .getLog(...)}, which is SLF4J-backed and never touches `System.out`.
+    ///
+    /// {@link Scope#child(Enum, Object, Scope.ScopedRunner)} installs a {@link LoggerUIService}
+    /// - Liquibase's own logger-backed {@code UIService} implementation - for the duration of
+    /// this call only, by overriding {@link Scope.Attr#ui} in a child scope. `sendMessage` then
+    /// routes through the same SLF4J-backed logger channel as the rest of Liquibase's output,
+    /// so nothing this method triggers reaches `System.out`.
     public static void migrate(HikariDataSource dataSource, ClassLoader pluginClassLoader) {
         withClassLoader(pluginClassLoader, () -> {
-            try (Connection connection = dataSource.getConnection()) {
-                var database = DatabaseFactory.getInstance()
-                        .findCorrectDatabaseImplementation(new JdbcConnection(connection));
-                try (Liquibase liquibase = new Liquibase(
-                        CHANGELOG, new ClassLoaderResourceAccessor(pluginClassLoader), database)) {
-                    liquibase.update("");
-                }
+            try {
+                Scope.child(Scope.Attr.ui, new LoggerUIService(), () -> {
+                    try (Connection connection = dataSource.getConnection()) {
+                        var database = DatabaseFactory.getInstance()
+                                .findCorrectDatabaseImplementation(new JdbcConnection(connection));
+                        try (Liquibase liquibase = new Liquibase(
+                                CHANGELOG, new ClassLoaderResourceAccessor(pluginClassLoader), database)) {
+                            liquibase.update("");
+                        }
+                    }
+                });
             } catch (Exception exception) {
                 throw new IllegalStateException("Ploceus schema migration failed", exception);
             }

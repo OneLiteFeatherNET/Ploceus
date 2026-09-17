@@ -14,9 +14,10 @@ import org.incendo.cloud.execution.ExecutionCoordinator;
 import org.incendo.cloud.paper.LegacyPaperCommandManager;
 import org.incendo.cloud.parser.ParserDescriptor;
 import org.incendo.cloud.parser.standard.EnumParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.logging.Level;
 import java.util.stream.Stream;
 
 /// Builds and registers the whole Cloud command tree from {@link PloceusCommands}.
@@ -37,6 +38,8 @@ import java.util.stream.Stream;
 /// Cloud's annotation processor narrow the sender type automatically. It still runs on
 /// modern Paper; "Legacy" here means "classic Bukkit command registration", not deprecated.
 public class CommandRegistrar {
+
+    private static final Logger log = LoggerFactory.getLogger(CommandRegistrar.class);
 
     private final Plugin plugin;
     private final PloceusCommands commands;
@@ -87,15 +90,13 @@ public class CommandRegistrar {
                 manager.registerBrigadier();
                 return;
             } catch (BukkitCommandManager.BrigadierInitializationException exception) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to register native Brigadier support; falling back to "
-                                + "classic command registration. Client-side argument "
-                                + "validation will be unavailable.", exception);
+                log.warn("Failed to register native Brigadier support; falling back to "
+                        + "classic command registration. Client-side argument validation "
+                        + "will be unavailable.", exception);
             }
         } else {
-            plugin.getLogger().info(
-                    "Server does not support native Brigadier commands; falling back to "
-                            + "classic command registration.");
+            log.info("Server does not support native Brigadier commands; falling back to "
+                    + "classic command registration.");
         }
 
         // BukkitCommandManager's own Javadoc warns that classic tab completion blocks the
@@ -107,9 +108,8 @@ public class CommandRegistrar {
         if (manager.hasCapability(CloudBukkitCapabilities.ASYNCHRONOUS_COMPLETION)) {
             manager.registerAsynchronousCompletions();
         } else {
-            plugin.getLogger().log(Level.WARNING,
-                    "Server does not support asynchronous tab completion; "
-                            + "Ploceus key suggestions may briefly block the main thread.");
+            log.warn("Server does not support asynchronous tab completion; "
+                    + "Ploceus key suggestions may briefly block the main thread.");
         }
     }
 

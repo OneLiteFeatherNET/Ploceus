@@ -11,13 +11,16 @@ import net.onelitefeather.ploceus.persistence.WorldRepository;
 import net.onelitefeather.ploceus.platform.MultiverseAdapter;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 import net.onelitefeather.ploceus.platform.WorldCreationRequest;
+import net.onelitefeather.ploceus.platform.Telemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import static net.onelitefeather.ploceus.domain.AuditEntry.TargetType.WORLD;
 
@@ -32,7 +35,7 @@ import static net.onelitefeather.ploceus.domain.AuditEntry.TargetType.WORLD;
 /// caller showing UI off the result still needs its own `scheduler.sync(...)` hop.
 public class WorldCreationService {
 
-    private static final Logger LOGGER = Logger.getLogger(WorldCreationService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(WorldCreationService.class);
 
     public record WorldCreationForm(String worldName, String displayName, String generator,
                                     String generatorSettings, String environment,
@@ -99,7 +102,24 @@ public class WorldCreationService {
     ///    complete with the outcome.
     public CompletableFuture<OperationResult<CreationOutcome>> create(Project project, WorldCreationForm form,
                                                                        Actor actor) {
+        Span span = Telemetry.tracer().spanBuilder("ploceus.world.create")
+                .setAttribute("ploceus.world.name", form.worldName())
+                .setAttribute("ploceus.project.key", project.getKey().asString())
+                .startSpan();
         CompletableFuture<OperationResult<CreationOutcome>> future = new CompletableFuture<>();
+        // Fires exactly once, regardless of which of the several completion paths below
+        // (invalid key, duplicate, thrown exception, or success) actually completed the
+        // future - so the span is closed once and only once without duplicating the bookkeeping
+        // at every return statement in this multi-hop, cross-thread method.
+        future.whenComplete((result, throwable) -> {
+            if (throwable != null) {
+                span.recordException(throwable);
+                span.setStatus(StatusCode.ERROR);
+            } else if (result instanceof OperationResult.Failure<CreationOutcome> failure) {
+                span.setStatus(StatusCode.ERROR, failure.messageKey());
+            }
+            span.end();
+        });
         scheduler.async(() -> {
             if (!PloceusKey.isValidValue(form.worldName())) {
                 future.complete(OperationResult.failure("form.invalidKey", form.worldName()));
@@ -143,8 +163,8 @@ public class WorldCreationService {
                         completeSuccess(project, form, actor, key, world, autoLoad, alias, future);
                     });
                 } catch (Throwable throwable) {
-                    LOGGER.log(Level.SEVERE,
-                            "World creation threw while creating '" + form.worldName() + "'", throwable);
+                    log.error("World creation threw while creating '{}'", form.worldName(), throwable);
+                    span.recordException(throwable);
                     dispatchRollback(world, future, throwable);
                 }
             });
@@ -169,8 +189,8 @@ public class WorldCreationService {
             scheduler.async(() -> rollbackAndFail(world, future,
                     "world.create.failed", world.getWorldName()));
         } catch (Throwable dispatchFailure) {
-            LOGGER.log(Level.SEVERE, "Could not schedule rollback for '" + world.getWorldName()
-                    + "'; the reserved row may be orphaned", dispatchFailure);
+            log.error("Could not schedule rollback for '{}'; the reserved row may be orphaned",
+                    world.getWorldName(), dispatchFailure);
             future.complete(OperationResult.failure("world.create.failed", world.getWorldName()));
         }
     }
@@ -185,9 +205,8 @@ public class WorldCreationService {
         try {
             worlds.delete(world);
         } catch (Throwable throwable) {
-            LOGGER.log(Level.SEVERE,
-                    "Failed to roll back the reserved row for '" + world.getWorldName()
-                            + "' after a failed creation", throwable);
+            log.error("Failed to roll back the reserved row for '{}' after a failed creation",
+                    world.getWorldName(), throwable);
         }
         future.complete(OperationResult.failure(messageKey, detail));
     }

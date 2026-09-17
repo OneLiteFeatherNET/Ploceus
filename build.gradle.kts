@@ -13,18 +13,35 @@ java {
 dependencies {
     compileOnly(libs.paper.api)
     compileOnly(files("libs/multiverse-core-5.8.1.jar"))
+    // Provided by Paper itself (paper-api declares it as an `api` dependency, so it's already
+    // on every plugin's runtime classpath) - compileOnly so it is neither shaded into the
+    // plugin jar nor fetched again by PloceusBootstrap's MavenLibraryResolver.
+    compileOnly(libs.slf4j.api)
 
     implementation(libs.bundles.cloud)
     annotationProcessor(libs.cloud.annotations)
     implementation(libs.guice)
     implementation(libs.inventoryframework)
     implementation(libs.datafaker)
+    // Bundled directly (implementation, not compileOnly) and deliberately left OUT of the
+    // shadowJar relocations below: Paper does not supply it, and MavenLibraryResolver is
+    // reserved for the heavyweight, multi-megabyte persistence stack this project already
+    // fetches lazily at startup - opentelemetry-api is a tiny, dependency-free, SemVer-stable
+    // artifact with no such need. It must keep its real `io.opentelemetry.api.*` package names
+    // because the OpenTelemetry javaagent recognises and bridges GlobalOpenTelemetry by exact
+    // class identity; relocating it would make the agent unable to see it at all.
+    implementation(libs.opentelemetry.api)
 
     // compileOnly: supplied at runtime by paper-plugin.yml's library resolver
     compileOnly(libs.bundles.persistence)
 
     testImplementation(libs.paper.api)
     testImplementation(files("libs/multiverse-core-5.8.1.jar"))
+    testImplementation(libs.slf4j.api)
+    testImplementation(libs.opentelemetry.api)
+    // In-memory span/metric exporters used to assert on real (not mocked) OTel SDK behaviour.
+    testImplementation(libs.opentelemetry.sdk)
+    testImplementation(libs.opentelemetry.sdk.testing)
     testImplementation(libs.bundles.persistence)
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

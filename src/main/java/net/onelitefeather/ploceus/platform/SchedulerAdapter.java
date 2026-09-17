@@ -2,6 +2,8 @@ package net.onelitefeather.ploceus.platform;
 
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -11,6 +13,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 public class SchedulerAdapter implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(SchedulerAdapter.class);
 
     private final Plugin plugin;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -92,8 +96,8 @@ public class SchedulerAdapter implements AutoCloseable {
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
                 List<Runnable> dropped = executor.shutdownNow();
-                plugin.getLogger().warning("SchedulerAdapter did not terminate within 5 seconds; "
-                        + dropped.size() + " queued task(s) were dropped.");
+                log.warn("SchedulerAdapter did not terminate within 5 seconds; {} queued task(s) "
+                        + "were dropped.", dropped.size());
             }
         } catch (InterruptedException e) {
             executor.shutdownNow();

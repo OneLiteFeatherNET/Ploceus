@@ -12,3 +12,6 @@ run/
 .claude/
 .serena/
 bin/
+
+# Multiverse-Core has no public Maven coordinate; supply the jar locally (see README)
+libs/

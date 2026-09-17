@@ -52,6 +52,7 @@ class FeedbackMessageTest {
         cases.put("world.assigned", new OperationResult.Success<>(assigned));
         cases.put("world.unassigned", new OperationResult.Success<>(unassigned));
         cases.put("world.renamed", new OperationResult.Success<>(assigned));
+        cases.put("world.updated", new OperationResult.Success<>(assigned));
         cases.put("world.created", new OperationResult.Success<>(assigned));
         cases.put("world.settingsUpdated", new OperationResult.Success<>(assigned));
         return cases;
@@ -82,6 +83,7 @@ class FeedbackMessageTest {
                 "world.assigned", "Desert Track",
                 "world.unassigned", "bak_Survival",
                 "world.renamed", "Desert Track",
+                "world.updated", "Desert Track",
                 "world.created", "Desert Track");
         Map<String, OperationResult.Success<?>> cases = successCases();
         return expectedOperand.entrySet().stream().map(entry -> DynamicTest.dynamicTest(

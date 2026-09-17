@@ -120,6 +120,30 @@ public class PloceusCommands {
         });
     }
 
+    /// The command-layer route to `ProjectService.describe`, closing the gap where only the
+    /// dialog channel (`DialogUi.createProjectForm`/`editProjectForm`, calling
+    /// `projects.describe(...)` directly) could ever set a project's description. A player
+    /// on the inventory or chat channel had no way to reach it at all.
+    ///
+    /// The description is a `@Greedy` trailing argument, like `displayName` above, which
+    /// means an empty description cannot be typed here — Cloud requires at least one
+    /// character for a required string argument, so there is no way to submit zero tokens
+    /// for it. This command can therefore set or overwrite a description, but never clear
+    /// one back to empty; the dialog channel's edit form remains the only route to that,
+    /// since it submits whatever text is in the input field, including none. That is an
+    /// accepted, documented gap (see `docs/operations.md`), not an oversight: a sentinel
+    /// value or a second `describe --clear` command would both work, but neither was worth
+    /// the extra surface for a feature no one has asked for yet.
+    @Command("ploceus|projects|pj project describe <key> <description>")
+    @Permission("ploceus.project.edit")
+    public void projectDescribe(Player player, @Argument("key") PloceusKey key,
+                                @Argument("description") @Greedy String description) {
+        scheduler.async(() -> {
+            var result = projects.describe(key, description, actorOf(player));
+            scheduler.sync(() -> router.forPlayer(player).feedback(player, result, "project.updated"));
+        });
+    }
+
     /// Requires the literal `--confirm` token (see the class Javadoc). Without it, this
     /// exact command string does not match any registered command, so Cloud rejects it
     /// before this method — or any project deletion logic — is ever reached.
@@ -235,6 +259,20 @@ public class PloceusCommands {
         scheduler.async(() -> {
             var result = worlds.rename(worldKey, displayName, actorOf(player));
             scheduler.sync(() -> router.forPlayer(player).feedback(player, result, "world.renamed"));
+        });
+    }
+
+    /// The command-layer route to `WorldService.describe`, which previously had no caller
+    /// at all — no channel and no command reached it. Same empty-description caveat as
+    /// `projectDescribe` above: the `@Greedy` argument can overwrite a description but
+    /// cannot clear it back to empty.
+    @Command("ploceus|projects|pj world describe <worldKey> <description>")
+    @Permission("ploceus.world.edit")
+    public void describeWorld(Player player, @Argument("worldKey") PloceusKey worldKey,
+                              @Argument("description") @Greedy String description) {
+        scheduler.async(() -> {
+            var result = worlds.describe(worldKey, description, actorOf(player));
+            scheduler.sync(() -> router.forPlayer(player).feedback(player, result, "world.updated"));
         });
     }
 

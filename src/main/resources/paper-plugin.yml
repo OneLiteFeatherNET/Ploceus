@@ -50,7 +50,7 @@ permissions:
     description: 'Assign a world to a project, or return it to the unassigned pool.'
     default: op
   ploceus.world.edit:
-    description: 'Change a world''s display name, tags, idle-unload minutes and pinned flag.'
+    description: 'Change a world''s display name, description, tags, idle-unload minutes and pinned flag.'
     default: op
   ploceus.world.teleport:
     description: 'Load a world on demand and teleport into it.'

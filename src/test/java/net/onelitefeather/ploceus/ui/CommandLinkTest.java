@@ -61,6 +61,7 @@ class CommandLinkTest {
         links.put("searchPrompt", CommandLinks.searchPrompt());
         links.put("createProjectPrompt", CommandLinks.createProjectPrompt());
         links.put("renameProjectPrompt", CommandLinks.renameProjectPrompt("elytrarace"));
+        links.put("describeProjectPrompt", CommandLinks.describeProjectPrompt("elytrarace"));
         return links;
     }
 

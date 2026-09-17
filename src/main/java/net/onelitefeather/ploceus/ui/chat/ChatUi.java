@@ -98,6 +98,9 @@ public class ChatUi implements ProjectUi {
         player.sendMessage(Messages.chat("form.displayName")
                 .clickEvent(ClickEvent.suggestCommand(
                         CommandLinks.renameProjectPrompt(project.getKey().value()))));
+        player.sendMessage(Messages.chat("form.description")
+                .clickEvent(ClickEvent.suggestCommand(
+                        CommandLinks.describeProjectPrompt(project.getKey().value()))));
     }
 
     @Override

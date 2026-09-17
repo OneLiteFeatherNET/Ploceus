@@ -88,4 +88,9 @@ public final class CommandLinks {
     public static String renameProjectPrompt(String projectKey) {
         return ROOT + " project rename " + projectKey + " ";
     }
+
+    /// Suggestion prefix: the player types the new description.
+    public static String describeProjectPrompt(String projectKey) {
+        return ROOT + " project describe " + projectKey + " ";
+    }
 }

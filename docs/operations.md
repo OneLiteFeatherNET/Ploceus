@@ -63,12 +63,12 @@ The table below is read directly off `@Permission` annotations in
 | `ploceus.use` | open `/ploceus` (the main menu) and switch UI channel with `/ploceus ui <channel>` |
 | `ploceus.project.list` | list projects (`project list`) and view a project's detail screen, including its worlds (`project info`) |
 | `ploceus.project.create` | open the create-project form (which also captures description and initial tags on the dialog channel) and create projects |
-| `ploceus.project.edit` | rename projects via `project rename`; on the dialog channel only, the same node also gates changing a project's description and status, since `DialogUi.editProjectForm` calls `ProjectService.describe`/`setStatus` directly rather than through a command |
+| `ploceus.project.edit` | rename projects (`project rename`) and set their description (`project describe`); on the dialog channel only, the same node also gates changing a project's status, since `DialogUi.editProjectForm` calls `ProjectService.setStatus` directly rather than through a command |
 | `ploceus.project.delete` | delete projects (`project delete ... --confirm`) |
 | `ploceus.world.list` | list unassigned worlds (`world list-unassigned`) |
 | `ploceus.world.create` | open the create-world form and create worlds |
 | `ploceus.world.assign` | assign and unassign worlds to/from a project |
-| `ploceus.world.edit` | rename a world, set its idle-unload minutes, pin/unpin it, and add tags |
+| `ploceus.world.edit` | rename a world (`world rename`), set its description (`world describe`), idle-unload minutes, pin/unpin it, and add tags |
 | `ploceus.world.teleport` | teleport into a world (`world tp`) |
 | `ploceus.search` | search projects and worlds |
 | `ploceus.audit` | read a project's or world's audit trail |
@@ -78,23 +78,24 @@ entirely with the permission nodes above (see the design doc's non-goals).
 
 **Setting a description — what actually works:**
 
-- **Project descriptions are settable, but only through the dialog channel.**
-  `DialogUi.createProjectForm` and `editProjectForm` both include a description input wired
-  directly to `ProjectService.describe(...)` (`editProjectForm` also sets status the same
-  way), bypassing the command layer entirely.
-- **No command accepts a description argument, for projects or worlds.** `project create`
-  and `project rename` are the only project-editing commands, and neither takes one; the
-  same is true for every `world *` command.
-- **The inventory and chat channels cannot set a project description at all.** Both fall
-  back to suggesting `/ploceus project create` / `/ploceus project rename` for these
-  screens, and those commands have nowhere to put a description. In practice: a player on
-  an older client who falls back to the inventory channel, or anyone who has explicitly
-  picked inventory or chat with `/ploceus ui`, has no route to setting a project
-  description — only dialog offers one.
-- **World descriptions have no route anywhere.** `WorldService.describe` exists but has no
-  caller in `ui/` or `command/` on any channel — not dialog, not inventory, not chat, and no
-  command. This is a real gap in the current feature surface, not a documentation omission;
-  flag it if world description-setting is expected to work.
+- **Every channel can set a project description.** The dialog channel still wires its
+  description input directly to `ProjectService.describe(...)` from
+  `createProjectForm`/`editProjectForm`, bypassing the command layer, but the inventory and
+  chat channels now route their "edit" screen through `/ploceus project describe <key>
+  <text>` (permission `ploceus.project.edit`) — the same command a player can also type
+  directly on any channel.
+- **World descriptions are set with `/ploceus world describe <worldKey> <text>`**
+  (permission `ploceus.world.edit`). There is deliberately no world-edit form on any
+  channel — dialog, inventory and chat all leave world descriptions, like every other world
+  setting besides display name/idle/pin/tags, to the command line. If a graphical
+  world-edit screen is wanted later, that is a new form to design on all three channels
+  (and in `ProjectUiContractTest`), not something this change adds.
+- **Descriptions can be overwritten but not cleared from a command.** Both `describe`
+  commands take the new text as a greedy trailing argument, and Cloud requires at least one
+  character for a required string argument — there is no way to type zero tokens for it. To
+  blank a project's description entirely, use the dialog channel's edit form and clear the
+  text field, which submits an empty string; there is still no way to blank a world's
+  description at all, on any channel, since no form exposes that field for worlds either.
 
 Both the dialog and inventory channels re-check the relevant permission a second time, at
 the moment a button/item is actually clicked, via the shared `ui.UiPermissions` helper —

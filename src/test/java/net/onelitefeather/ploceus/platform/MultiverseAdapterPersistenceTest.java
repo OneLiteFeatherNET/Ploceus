@@ -2,6 +2,8 @@ package net.onelitefeather.ploceus.platform;
 
 import net.onelitefeather.ploceus.domain.OperationResult;
 import org.junit.jupiter.api.Test;
+import org.mvplugins.multiverse.core.utils.result.Attempt;
+import org.mvplugins.multiverse.core.world.reasons.ImportFailureReason;
 import org.mvplugins.multiverse.external.vavr.control.Try;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -75,6 +77,72 @@ class MultiverseAdapterPersistenceTest {
         assertThat(failure.messageKey()).isEqualTo("world.alias.failed");
         assertThat(saveCalls.get())
                 .as("a mutation that never took effect must not be flushed to worlds.yml")
+                .isZero();
+    }
+
+    // --- foldAttemptThenSave: the same durability contract, for MultiverseAdapter.importWorld ---
+    //
+    // `WorldManager.importWorld` hands back an `Attempt<LoadedMultiverseWorld,
+    // ImportFailureReason>` rather than the `Try<Void>` a property setter returns, so it
+    // folds through a separate function - but it must decide the exact same thing
+    // `foldMutationThenSave` decides for `setAutoLoad`/`setAlias`: a successful Multiverse
+    // call alone is not enough, only a successful call *and* a successful
+    // `saveWorldsConfig()` together count as done. `Attempt.success`/`Attempt.failure` are
+    // real, publicly constructible values (unlike `WorldManager` itself), so this needs no
+    // live Multiverse plugin either.
+
+    @Test
+    void aSuccessfulImportThatSavesIsAnOverallSuccess() {
+        AtomicInteger saveCalls = new AtomicInteger();
+        Attempt<Object, ImportFailureReason> attempt = Attempt.success(new Object());
+
+        OperationResult<String> result = MultiverseAdapter.foldAttemptThenSave(
+                attempt, "elytrarace-alien", "world.import.failed",
+                () -> {
+                    saveCalls.incrementAndGet();
+                    return Try.success(null);
+                });
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(((OperationResult.Success<String>) result).value()).isEqualTo("elytrarace-alien");
+        assertThat(saveCalls.get())
+                .as("a successful import must be followed by exactly one persist attempt")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void aSuccessfulImportThatFailsToSaveIsReportedAsFailure() {
+        Attempt<Object, ImportFailureReason> attempt = Attempt.success(new Object());
+
+        OperationResult<String> result = MultiverseAdapter.foldAttemptThenSave(
+                attempt, "elytrarace-alien", "world.import.failed",
+                () -> Try.failure(new java.io.IOException("disk full")));
+
+        assertThat(result.isSuccess()).isFalse();
+        var failure = (OperationResult.Failure<String>) result;
+        assertThat(failure.messageKey()).isEqualTo("world.import.failed");
+        assertThat(failure.detail())
+                .as("the player/operator gets the world name, never the exception text")
+                .isEqualTo("elytrarace-alien");
+    }
+
+    @Test
+    void aFailedImportNeverAttemptsToSave() {
+        AtomicInteger saveCalls = new AtomicInteger();
+        Attempt<Object, ImportFailureReason> attempt = Attempt.failure(ImportFailureReason.WORLD_EXIST_LOADED);
+
+        OperationResult<String> result = MultiverseAdapter.foldAttemptThenSave(
+                attempt, "elytrarace-alien", "world.import.failed",
+                () -> {
+                    saveCalls.incrementAndGet();
+                    return Try.success(null);
+                });
+
+        assertThat(result.isSuccess()).isFalse();
+        var failure = (OperationResult.Failure<String>) result;
+        assertThat(failure.detail()).isEqualTo("WORLD_EXIST_LOADED");
+        assertThat(saveCalls.get())
+                .as("an import that never took effect must not be flushed to worlds.yml")
                 .isZero();
     }
 }

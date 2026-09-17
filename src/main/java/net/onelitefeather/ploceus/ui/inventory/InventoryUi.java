@@ -12,6 +12,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.onelitefeather.ploceus.PloceusConfig;
 import net.onelitefeather.ploceus.domain.*;
+import net.onelitefeather.ploceus.platform.MultiverseAdapter;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 import net.onelitefeather.ploceus.service.*;
 import net.onelitefeather.ploceus.ui.CommandLinks;
@@ -70,10 +71,13 @@ public class InventoryUi implements ProjectUi {
     private final SchedulerAdapter scheduler;
     private final PloceusConfig config;
     private final Plugin plugin;
+    private final MultiverseAdapter multiverse;
+    private final WorldImportService importService;
 
     @Inject
     public InventoryUi(ProjectService projects, WorldService worlds, WorldLifecycleService lifecycle,
-                       AuditService audit, SchedulerAdapter scheduler, PloceusConfig config, Plugin plugin) {
+                       AuditService audit, SchedulerAdapter scheduler, PloceusConfig config, Plugin plugin,
+                       MultiverseAdapter multiverse, WorldImportService importService) {
         this.projects = projects;
         this.worlds = worlds;
         this.lifecycle = lifecycle;
@@ -81,6 +85,8 @@ public class InventoryUi implements ProjectUi {
         this.scheduler = scheduler;
         this.config = config;
         this.plugin = plugin;
+        this.multiverse = multiverse;
+        this.importService = importService;
     }
 
     @Override
@@ -91,6 +97,8 @@ public class InventoryUi implements ProjectUi {
                 Messages.get("menu.projects"), 2, 1, () -> openProjectList(player, 0));
         addIfPermitted(pane, player, "ploceus.world.list", Material.CHEST,
                 Messages.get("menu.unassigned"), 4, 1, () -> openUnassigned(player, 0));
+        addIfPermitted(pane, player, "ploceus.world.list", Material.ENDER_CHEST,
+                Messages.get("menu.importable"), 5, 1, () -> openImportable(player, 0));
         addIfPermitted(pane, player, "ploceus.search", Material.COMPASS,
                 Messages.get("menu.search"), 6, 1, () -> searchPrompt(player));
         gui.addPane(Slot.fromXY(0, 0), pane);
@@ -171,6 +179,32 @@ public class InventoryUi implements ProjectUi {
         gui.addPane(Slot.fromXY(0, ROWS - 1), navigationRow(player, page,
                 target -> openUnassigned(player, target), () -> mainMenu(player)));
         gui.show(player);
+    }
+
+    /// Each item imports on click, gated by `ploceus.world.import` rather than the
+    /// `ploceus.world.list` that gates reaching this screen — mirrors `DialogUi`'s split
+    /// between viewing the list and acting on an entry.
+    @Override
+    public void importableWorlds(Player player, Page<String> page) {
+        ChestGui gui = new ChestGui(ROWS, title(Messages.get("import.potential.title",
+                placeholder("page", String.valueOf(page.pageNumber() + 1)),
+                placeholder("pages", String.valueOf(page.totalPages())))), plugin);
+        OutlinePane items = new OutlinePane(9, ROWS - 1);
+        page.items().stream()
+                .map(folderName -> importableWorldItem(player, folderName))
+                .filter(Objects::nonNull)
+                .forEach(items::addItem);
+        gui.addPane(Slot.fromXY(0, 0), items);
+        gui.addPane(Slot.fromXY(0, ROWS - 1), navigationRow(player, page,
+                target -> openImportable(player, target), () -> mainMenu(player)));
+        gui.show(player);
+    }
+
+    private GuiItem importableWorldItem(Player player, String folderName) {
+        return item(player, "ploceus.world.import", Material.GRASS_BLOCK, Component.text(folderName), () -> {
+            player.closeInventory();
+            importWorld(player, folderName);
+        });
     }
 
     @Override
@@ -347,6 +381,31 @@ public class InventoryUi implements ProjectUi {
             Page<ProjectWorld> page = Page.of(worlds.unassigned(), pageNumber, config.entriesPerPage());
             scheduler.sync(() -> unassignedWorlds(player, page));
         });
+    }
+
+    /// `multiverse.potentialWorlds()` self-hops to the main thread (see `MultiverseAdapter`'s
+    /// class doc), so calling it from the async executor here only costs a round trip, not
+    /// correctness — the same pattern `openUnassigned` and `PloceusCommands.potentialWorlds`
+    /// use for their own service reads.
+    private void openImportable(Player player, int pageNumber) {
+        scheduler.async(() -> {
+            Page<String> page = Page.of(multiverse.potentialWorlds(), pageNumber, config.entriesPerPage());
+            scheduler.sync(() -> importableWorlds(player, page));
+        });
+    }
+
+    /// Same shape as `worldItem`'s teleport action: `importService.importOne` crosses
+    /// threads on its own (see its Javadoc), so only the feedback needs its own hop back to
+    /// the main thread.
+    private void importWorld(Player player, String folderName) {
+        Actor actor = new Actor(player.getUniqueId(), player.getName());
+        importService.importOne(folderName, actor).thenAccept(result -> scheduler.sync(() -> {
+            feedback(player, result.map(WorldImportService.ImportOutcome::world), "world.imported");
+            if (result instanceof OperationResult.Success<WorldImportService.ImportOutcome> success) {
+                success.value().warnings().forEach(warning -> player.sendMessage(
+                        Messages.chat(warning.messageKey(), placeholder("detail", warning.detail()))));
+            }
+        }));
     }
 
     /// Same "fetch one extra row" trick `DialogUi.openAudit` and

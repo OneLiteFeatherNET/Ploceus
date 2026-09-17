@@ -2,6 +2,7 @@ package net.onelitefeather.ploceus.command;
 
 import jakarta.inject.Inject;
 import net.onelitefeather.ploceus.domain.PloceusKey;
+import net.onelitefeather.ploceus.platform.MultiverseAdapter;
 import net.onelitefeather.ploceus.service.ProjectService;
 import net.onelitefeather.ploceus.service.WorldService;
 import net.onelitefeather.ploceus.ui.UiChannel;
@@ -14,6 +15,7 @@ import org.incendo.cloud.execution.ExecutionCoordinator;
 import org.incendo.cloud.paper.LegacyPaperCommandManager;
 import org.incendo.cloud.parser.ParserDescriptor;
 import org.incendo.cloud.parser.standard.EnumParser;
+import org.incendo.cloud.suggestion.SuggestionProvider;
 
 import java.util.List;
 import java.util.logging.Level;
@@ -42,14 +44,16 @@ public class CommandRegistrar {
     private final PloceusCommands commands;
     private final ProjectService projects;
     private final WorldService worlds;
+    private final MultiverseAdapter multiverse;
 
     @Inject
     public CommandRegistrar(Plugin plugin, PloceusCommands commands,
-                            ProjectService projects, WorldService worlds) {
+                            ProjectService projects, WorldService worlds, MultiverseAdapter multiverse) {
         this.plugin = plugin;
         this.commands = commands;
         this.projects = projects;
         this.worlds = worlds;
+        this.multiverse = multiverse;
     }
 
     public void register() {
@@ -63,8 +67,19 @@ public class CommandRegistrar {
         // Behind a short-TTL cache, because Cloud asks for suggestions once per keystroke and
         // `allKeys` is two unbounded selects - see CachedKeys.
         manager.parserRegistry().registerParser(ParserDescriptor.of(
-                new PloceusKeyParser(new CachedKeys(this::allKeys)), PloceusKey.class));
+                new PloceusKeyParser(new CachedKeys<>(this::allKeys)), PloceusKey.class));
         manager.parserRegistry().registerParser(EnumParser.enumParser(UiChannel.class));
+
+        // `/ploceus world import <folderName>` tab completion. Named rather than typed
+        // (`@Argument(suggestions = "potentialWorlds")`) because the argument itself is a
+        // plain `String` — registering a parser against `String.class` would hijack every
+        // other plain-string argument in the command tree (`worldName`, `displayName`, ...).
+        // Cached the same way `allKeys` is: `MultiverseAdapter.potentialWorlds()` walks the
+        // world container directory on the main thread, and Cloud asks for suggestions once
+        // per keystroke.
+        CachedKeys<String> potentialWorlds = new CachedKeys<>(multiverse::potentialWorlds);
+        manager.parserRegistry().registerSuggestionProvider("potentialWorlds",
+                SuggestionProvider.blockingStrings((context, input) -> potentialWorlds.get()));
 
         new AnnotationParser<>(manager, CommandSender.class).parse(commands);
     }

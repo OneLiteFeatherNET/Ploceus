@@ -11,6 +11,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.onelitefeather.ploceus.PloceusConfig;
 import net.onelitefeather.ploceus.domain.*;
+import net.onelitefeather.ploceus.platform.MultiverseAdapter;
 import net.onelitefeather.ploceus.platform.SchedulerAdapter;
 import net.onelitefeather.ploceus.service.*;
 import net.onelitefeather.ploceus.ui.Messages;
@@ -68,11 +69,14 @@ public class DialogUi implements ProjectUi {
     private final PloceusConfig config;
     private final WorldCreationService creation;
     private final NameSuggester suggester;
+    private final MultiverseAdapter multiverse;
+    private final WorldImportService importService;
 
     @Inject
     public DialogUi(ProjectService projects, WorldService worlds, WorldLifecycleService lifecycle,
                     AuditService audit, SchedulerAdapter scheduler, PloceusConfig config,
-                    WorldCreationService creation, NameSuggester suggester) {
+                    WorldCreationService creation, NameSuggester suggester, MultiverseAdapter multiverse,
+                    WorldImportService importService) {
         this.projects = projects;
         this.worlds = worlds;
         this.lifecycle = lifecycle;
@@ -81,6 +85,8 @@ public class DialogUi implements ProjectUi {
         this.config = config;
         this.creation = creation;
         this.suggester = suggester;
+        this.multiverse = multiverse;
+        this.importService = importService;
     }
 
     @Override
@@ -93,6 +99,8 @@ public class DialogUi implements ProjectUi {
                 Messages.get("menu.projects"), () -> openProjectList(player, 0));
         addIfPermitted(buttons, player, "ploceus.world.list",
                 Messages.get("menu.unassigned"), () -> openUnassigned(player, 0));
+        addIfPermitted(buttons, player, "ploceus.world.list",
+                Messages.get("menu.importable"), () -> openImportable(player, 0));
         addIfPermitted(buttons, player, "ploceus.search",
                 Messages.get("menu.search"), () -> searchPrompt(player));
         player.showDialog(DialogFactory.multiAction(
@@ -178,6 +186,46 @@ public class DialogUi implements ProjectUi {
                 page, target -> openUnassigned(player, target)));
         player.showDialog(DialogFactory.multiAction(
                 Messages.get("menu.unassigned"), buttons, backTo(player, () -> mainMenu(player)), COLUMNS));
+    }
+
+    /// Each entry imports on click, gated by `ploceus.world.import` rather than the
+    /// `ploceus.world.list` that gates reaching this screen at all — the same "viewing is
+    /// not authorization to act" split `worldButtons`' teleport gate and the delete button
+    /// on `projectDetail` both already draw. Reopens the same page afterwards (via
+    /// `feedback`'s own back button) rather than re-rendering the list with the just-imported
+    /// folder removed: Multiverse's `getPotentialWorlds()` is re-read fresh the next time
+    /// this screen opens, so nothing needs to be reconciled here.
+    @Override
+    public void importableWorlds(Player player, Page<String> page) {
+        if (!canRenderDialogs(player)) {
+            return;
+        }
+        List<ActionButton> buttons = new ArrayList<>();
+        for (String folderName : page.items()) {
+            addIfPermitted(buttons, player, "ploceus.world.import", Component.text(folderName),
+                    () -> importWorld(player, folderName));
+        }
+        buttons.addAll(DialogCallbacks.paginationButtons(player, "ploceus.use", () -> denyPermission(player),
+                page, target -> openImportable(player, target)));
+        player.showDialog(DialogFactory.multiAction(
+                Messages.get("import.potential.title",
+                        placeholder("page", String.valueOf(page.pageNumber() + 1)),
+                        placeholder("pages", String.valueOf(page.totalPages()))),
+                buttons, backTo(player, () -> mainMenu(player)), COLUMNS));
+    }
+
+    /// Same shape as every other service call this class fires from a button: hop to the
+    /// main thread only for `feedback`, since `importService.importOne` already crosses
+    /// threads on its own (see its Javadoc).
+    private void importWorld(Player player, String folderName) {
+        Actor actor = new Actor(player.getUniqueId(), player.getName());
+        importService.importOne(folderName, actor).thenAccept(result -> scheduler.sync(() -> {
+            feedback(player, result.map(WorldImportService.ImportOutcome::world), "world.imported");
+            if (result instanceof OperationResult.Success<WorldImportService.ImportOutcome> success) {
+                success.value().warnings().forEach(warning -> player.sendMessage(
+                        Messages.chat(warning.messageKey(), placeholder("detail", warning.detail()))));
+            }
+        }));
     }
 
     @Override
@@ -526,6 +574,18 @@ public class DialogUi implements ProjectUi {
         scheduler.async(() -> {
             Page<ProjectWorld> page = Page.of(worlds.unassigned(), pageNumber, config.entriesPerPage());
             scheduler.sync(() -> unassignedWorlds(player, page));
+        });
+    }
+
+    /// `multiverse.potentialWorlds()` is safe to call from any thread (it hops to the main
+    /// thread itself, see `MultiverseAdapter`'s class doc) and is called here from the async
+    /// executor deliberately, the same way `PloceusCommands.potentialWorlds` does — it is a
+    /// directory scan, not something that belongs inline in a `scheduler.sync` block that is
+    /// also about to render a dialog.
+    private void openImportable(Player player, int pageNumber) {
+        scheduler.async(() -> {
+            Page<String> page = Page.of(multiverse.potentialWorlds(), pageNumber, config.entriesPerPage());
+            scheduler.sync(() -> importableWorlds(player, page));
         });
     }
 

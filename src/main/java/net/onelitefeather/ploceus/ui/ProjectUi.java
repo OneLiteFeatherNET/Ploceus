@@ -20,6 +20,12 @@ public interface ProjectUi {
 
     void unassignedWorlds(Player player, Page<ProjectWorld> page);
 
+    /// The folder names `MultiverseAdapter.potentialWorlds()` reports: worlds that exist on
+    /// disk but are not yet under Multiverse's — or therefore Ploceus' — management. The
+    /// operator's way to discover `/ploceus world import <folderName>`'s targets without
+    /// already knowing a folder name to tab-complete against.
+    void importableWorlds(Player player, Page<String> page);
+
     void searchPrompt(Player player);
 
     void searchResults(Player player, String term, Page<Project> projects, Page<ProjectWorld> worlds);

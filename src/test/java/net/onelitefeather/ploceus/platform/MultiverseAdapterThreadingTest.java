@@ -57,6 +57,8 @@ class MultiverseAdapterThreadingTest {
         calls.put("setAlias", () -> adapter.setAlias("elytrarace-alien", "Alien"));
         calls.put("createWorld", () -> adapter.createWorld(new WorldCreationRequest(
                 PloceusKey.of("elytrarace-alien"), "elytrarace-alien", "", "", "NORMAL", null, false, null)));
+        calls.put("potentialWorlds", adapter::potentialWorlds);
+        calls.put("importWorld", () -> adapter.importWorld("elytrarace-alien"));
         calls.put("generators", adapter::generators);
         return calls;
     }

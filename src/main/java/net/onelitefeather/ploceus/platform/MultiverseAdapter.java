@@ -6,10 +6,13 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.mvplugins.multiverse.core.MultiverseCoreApi;
+import org.mvplugins.multiverse.core.utils.result.Attempt;
+import org.mvplugins.multiverse.core.utils.result.FailureReason;
 import org.mvplugins.multiverse.core.world.MultiverseWorld;
 import org.mvplugins.multiverse.core.world.WorldManager;
 import org.mvplugins.multiverse.core.world.generators.GeneratorProvider;
 import org.mvplugins.multiverse.core.world.options.CreateWorldOptions;
+import org.mvplugins.multiverse.core.world.options.ImportWorldOptions;
 import org.mvplugins.multiverse.core.world.options.UnloadWorldOptions;
 import org.mvplugins.multiverse.external.vavr.control.Try;
 
@@ -58,6 +61,14 @@ import java.util.logging.Logger;
 /// per world and nothing ever saved), and `worlds.yml` is small enough (six worlds on the
 /// server that found this) that a write per call is not worth the risk of a caller
 /// forgetting again.
+///
+/// {@link #importWorld} joined this group later, for exactly the same reason: importing a
+/// world registers it in Multiverse's in-memory `WorldConfig` just like `setAutoLoad` does,
+/// and without an explicit save it would vanish from `worlds.yml` on the next restart —
+/// the exact bug above, recreated one call site later had this been added without noticing
+/// the precedent. It folds through {@link #foldAttemptThenSave} instead of
+/// {@link #foldMutationThenSave} only because `WorldManager.importWorld` hands back an
+/// `Attempt`, not a `Try<Void>`; the durability guarantee itself is identical.
 public class MultiverseAdapter {
 
     private static final Logger LOGGER = Logger.getLogger(MultiverseAdapter.class.getName());
@@ -235,6 +246,58 @@ public class MultiverseAdapter {
         return attempt.isSuccess()
                 ? OperationResult.success(request.worldName())
                 : OperationResult.failure("world.create.failed", String.valueOf(attempt.getFailureReason()));
+    }
+
+    /// The folder names Multiverse can see on disk but does not manage yet — the gap this
+    /// method exists to close. Populates the import screen/tab completion; nothing here
+    /// filters against Ploceus' own database, since a folder Multiverse still considers
+    /// "potential" cannot already be one of ours.
+    public List<String> potentialWorlds() {
+        return scheduler.onMainThread(() -> List.copyOf(worldManager().getPotentialWorlds()));
+    }
+
+    /// Brings an existing, Multiverse-unmanaged world folder under Multiverse management.
+    /// Loads the world as a side effect of a successful import — Multiverse's own
+    /// `importWorld` has no "import without loading" mode — so the caller decides what
+    /// happens next (see `WorldImportService.importOne`).
+    ///
+    /// Durable, same contract as {@link #setAutoLoad}/{@link #setAlias}: a `Success` here
+    /// means the import is also on disk in `worlds.yml`, not just registered in memory for
+    /// this run. Uses {@link #foldAttemptThenSave} rather than {@link #foldMutationThenSave}
+    /// because `WorldManager.importWorld` returns an `Attempt<LoadedMultiverseWorld,
+    /// ImportFailureReason>`, not a `Try<Void>` — the shape `setAutoLoad`/`setAlias` mutate
+    /// through. The success payload (a `LoadedMultiverseWorld`) is deliberately discarded
+    /// rather than returned: no Multiverse type may leave this class, and every caller only
+    /// ever needed the world name back, exactly like {@link #createWorld}.
+    public OperationResult<String> importWorld(String worldName) {
+        return scheduler.onMainThread(() -> importWorldOnMainThread(worldName));
+    }
+
+    private OperationResult<String> importWorldOnMainThread(String worldName) {
+        var attempt = worldManager().importWorld(ImportWorldOptions.worldName(worldName));
+        return foldAttemptThenSave(attempt, worldName, "world.import.failed", worldManager()::saveWorldsConfig);
+    }
+
+    /// The `Attempt`-shaped counterpart of {@link #foldMutationThenSave}: decides whether a
+    /// successful Multiverse `Attempt` counts as done only once the follow-up
+    /// `saveWorldsConfig()` also succeeds. Kept separate from `foldMutationThenSave` instead
+    /// of unified behind a shared abstraction over `Attempt`/`Try` — the two Vavr-adjacent
+    /// shaded types have no common supertype worth generalising over, and duplicating this
+    /// small fold is cheaper than a generic bridge between them. Pure and static for the
+    /// same reason as `foldMutationThenSave`: testable with real, publicly constructible
+    /// `Attempt.success`/`Attempt.failure` values, no live `WorldManager` required.
+    static OperationResult<String> foldAttemptThenSave(Attempt<?, ? extends FailureReason> attempt, String worldName,
+                                                        String failureMessageKey, Supplier<Try<Void>> save) {
+        if (!attempt.isSuccess()) {
+            return OperationResult.failure(failureMessageKey, String.valueOf(attempt.getFailureReason()));
+        }
+        Try<Void> saved = save.get();
+        if (!saved.isSuccess()) {
+            LOGGER.log(Level.WARNING,
+                    "Imported '" + worldName + "' but could not persist worlds.yml", saved.getCause());
+            return OperationResult.failure(failureMessageKey, worldName);
+        }
+        return OperationResult.success(worldName);
     }
 
     /// Loads the world first if necessary, then teleports through Multiverse's own safety

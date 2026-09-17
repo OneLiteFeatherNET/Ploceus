@@ -66,7 +66,7 @@ class DescribeCommandTest {
         FeedbackCapturingUi ui = new FeedbackCapturingUi();
 
         PloceusCommands commands = new PloceusCommands(projects, null, null, null,
-                routerAlwaysReturning(ui), inlineScheduler(), null, null, null, null);
+                routerAlwaysReturning(ui), inlineScheduler(), null, null, null, null, null);
 
         commands.projectDescribe(player, key, "A race across the sky.");
 
@@ -102,7 +102,7 @@ class DescribeCommandTest {
         FeedbackCapturingUi ui = new FeedbackCapturingUi();
 
         PloceusCommands commands = new PloceusCommands(null, worlds, null, null,
-                routerAlwaysReturning(ui), inlineScheduler(), null, null, null, null);
+                routerAlwaysReturning(ui), inlineScheduler(), null, null, null, null, null);
 
         commands.describeWorld(player, key, "A dune sea with a hidden oasis.");
 
@@ -170,6 +170,7 @@ class DescribeCommandTest {
         @Override public void worldList(Player player, Project project,
                 net.onelitefeather.ploceus.ui.Page<ProjectWorld> page) { }
         @Override public void unassignedWorlds(Player player, net.onelitefeather.ploceus.ui.Page<ProjectWorld> page) { }
+        @Override public void importableWorlds(Player player, net.onelitefeather.ploceus.ui.Page<String> page) { }
         @Override public void searchPrompt(Player player) { }
         @Override public void searchResults(Player player, String term,
                 net.onelitefeather.ploceus.ui.Page<Project> projects,

@@ -32,6 +32,8 @@ public class ChatUi implements ProjectUi {
                 .clickEvent(ClickEvent.runCommand(CommandLinks.projectList())));
         player.sendMessage(Messages.get("menu.unassigned")
                 .clickEvent(ClickEvent.runCommand(CommandLinks.unassignedWorlds())));
+        player.sendMessage(Messages.get("menu.importable")
+                .clickEvent(ClickEvent.runCommand(CommandLinks.potentialWorlds())));
         player.sendMessage(Messages.get("menu.search")
                 .clickEvent(ClickEvent.suggestCommand(CommandLinks.searchPrompt())));
     }
@@ -66,6 +68,16 @@ public class ChatUi implements ProjectUi {
     public void unassignedWorlds(Player player, Page<ProjectWorld> page) {
         page.items().forEach(world -> player.sendMessage(worldLine(world)));
         sendPagination(player, page, CommandLinks::unassignedWorlds);
+    }
+
+    /// Each folder name is a click-to-run import, the same directness `worldLine`'s
+    /// click-to-teleport uses: importing needs no typed input beyond which folder, so unlike
+    /// this channel's text-input forms there is nothing to fall back to a suggestion for.
+    @Override
+    public void importableWorlds(Player player, Page<String> page) {
+        page.items().forEach(folderName -> player.sendMessage(Component.text(folderName)
+                .clickEvent(ClickEvent.runCommand(CommandLinks.importWorld(folderName)))));
+        sendPagination(player, page, CommandLinks::potentialWorlds);
     }
 
     @Override

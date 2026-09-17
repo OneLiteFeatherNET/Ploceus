@@ -1,0 +1,69 @@
+# Ploceus — Übergabe
+
+Stand: 40 Commits auf `feat/ploceus-foundation`, 62 Quell- und 37 Testdateien, 288 Tests grün (0 übersprungen), verifiziert gegen H2 **und** PostgreSQL.
+
+## Was noch offen ist
+
+**1. Das Plugin lief noch nie.** Kein Subagent durfte deinen Server unter `~/Schreibtisch/Team-Build-1` starten — das hätte `worlds.yml` für alle 76 Welten umgeschrieben und eine Datenbank angelegt. `docs/operations.md` enthält dafür eine 33-schrittige Checkliste in 7 Phasen, sortiert so, dass ein grundsätzliches Problem zuerst auffliegt.
+
+**2. Die letzte Fix-Welle ist nicht unabhängig geprüft.** Elf Commits schlossen die fünf Blocker des Abschlussreviews; der Verifikationslauf blieb kurz vor seinem Bericht hängen. Die Commits sind da und der Build ist grün, aber niemand hat sie gegengelesen.
+
+**3. Offene Frage, die nur der Serverstart klärt:** `paper-plugin.yml` nennt dieselbe Klasse als `bootstrapper` und als `loader`. Papers Javadoc sagt, der Loader läuft in einem eigenen Classloader, und `PloceusBootstrap` hält nur Konstanten — es sollte tragen. Ob Papers Manifest-Prüfung das akzeptiert, zeigt erst Schritt 1 der Checkliste.
+
+## Bekannte Lücken (kein Fehler, fehlende Funktion)
+
+- **Weltbeschreibungen lassen sich nirgends setzen.** `WorldService.describe` existiert ohne Aufrufer.
+
+- **Projektbeschreibungen nur im Dialog-Kanal.** Wer über Inventar oder Chat arbeitet, kommt nicht heran — kein Befehl nimmt ein Beschreibungsargument.
+
+- **Multiverse 5.8.1 hat keine öffentliche Maven-Koordinate.** Das Jar liegt als 4,6 MB in `libs/` im Repo. Renovate sieht es nicht; ein Update ist ein manueller Binär-Commit.
+
+- **Der Vertragstest über die drei Kanäle ist strukturell, nicht verhaltensbasiert.** Er prüft, dass jeder Kanal jeden Bildschirm implementiert — nicht, dass sie dasselbe tun. Drei der fünf Blocker wären einem Verhaltenstest aufgefallen.
+
+## Entscheidungen, die ich für dich getroffen habe
+
+Jede mit dem, was sie kostet, falls sie falsch war. Vollständig — nichts ausgelassen.
+
+**1.** batch Tasks 2+3 into one dispatch — both are pure domain transcription with complete code in their briefs, Task 3 consumes only PloceusKey from Task 2, and they share one review surface. Cost if wrong: a single review covers ~12 files instead of 2, so a defect is marginally likelier to slip; the ArchUnit gate in Task 5 and the type-consistency checks in later reviews still catch it.
+
+**2.** deviation B must be revisited once Task 17 lands (all packages then exist). A misspelled package pattern silently passes while this is false. Carry into the final review as a required triage item; do NOT let it ship as-is. Cost if wrong: a layer rule could be dead and nobody notices.
+
+**3.** both Important findings go into the fix loop despite being plan-mandated. (1) WorldService.rename persists the display name and its audit entry, then returns failure if the alias mirror fails — the caller is told the rename failed although it happened, and the record and Multiverse then disagree. (2) SchedulerAdapter.close() calls shutdown() without awaitTermination, so VisitTracker's final flush on plugin disable can be dropped — that is silent data loss of lastVisitedAt on every server stop, which the unload policy then reads wrong. The spec is the binding authority and it requires the alias to mirror the display name and lastVisitedAt to drive unloading; the plan's sample code does not deliver either. Cost if wrong: a little rework in platform/service; leaving them costs correctness at shutdown.
+
+**4.** promote the World.Environment.valueOf Minor to the fix loop as well. The Global Constraints state every Multiverse call is translated into OperationResult inside platform; an uncaught IllegalArgumentException escaping the adapter breaks exactly that guarantee, so it is a constraint violation rather than a style issue. Cost if wrong: one extra small change in the same file the other fixes touch.
+
+**5.** subagents must NOT start the real Paper server at ~/Schreibtisch/Team-Build-1. Several task briefs end with "verify on the real server" (Tasks 9, 12, 14, 15, 17, 18). Running Ploceus there writes into the user's live server state — it sets auto-load=false across worlds.yml for all 76 worlds and creates plugins/Ploceus/data.mv.db. That is an irreversible side effect outside this repository and outside anything the user approved. Decision: implement and build everything, skip every on-server verification step, and collect them into one hand-over list for the user to run themselves. Cost if wrong: integration defects that only a running server reveals stay undetected until the user does that pass — so the hand-over list must be explicit about what is unverified.
+
+**6.** Important #1 (VisitTracker.recordVisit does a main-thread DB read on every join/quit/world-change) goes into the fix loop. This is the worst defect found so far and it is mine: the whole point of batching visits was to keep the hot path off the database, and the plan's own code defeats that by resolving worldName->PloceusKey through a repository read inside the Bukkit event handler. Fix direction: buffer by worldName (String) on the hot path and resolve keys during the async flush. Cost if wrong: rework in one class; leaving it costs tick lag proportional to player traffic on a build server with 76 worlds.
+
+**7.** Important #2 (VisitTracker.close() flushes synchronously) is PARKED as correct-as-is. close() runs during plugin disable, when SchedulerAdapter is being torn down; an async flush there would be dropped, which is precisely the data loss the earlier fix round closed. A synchronous write on the main thread during shutdown is the right trade. Cost if wrong: a brief stall at server stop.
+
+**8.** Important #3 (synchronous Liquibase migration and SessionFactory build in onEnable) is PARKED as acceptable. Paper loads plugins synchronously and every service needs a validated schema before the first event arrives; migrating asynchronously would race the listener registration. This is a one-off startup cost against embedded H2. Cost if wrong: slower server start on a large PostgreSQL schema — to be re-judged if the user moves to PostgreSQL.
+
+**9.** promote the Minor "runReaperAsync has no direct test" into this fix round. The async/sync hop is the exact thing R4 was raised about, and nothing currently proves it stays correct — a regression that drops scheduler.sync would unload worlds off the main thread and corrupt server state silently. Cost if wrong: one extra test.
+
+**10.** Important #1 (hardcoded player-visible strings in ChatUi: "never visited"/"known" at line 156 and "no tags" at line 164 — one more than the implementer self-reported) goes into the fix loop. The Global Constraint says every user-visible string lives in Messages; these reach players directly and would be invisible to any future translation. Cost if wrong: three small edits.
+
+**11.** Important #2 (UiRouter.forPlayer runs preferences.find(uuid), a JDBC read, inline inside cache.computeIfAbsent — on the main thread, since it also calls Bukkit's getProtocolVersion) goes into the fix loop NOW rather than later. Nothing calls UiRouter yet, so it is currently harmless, but Task 14 wires commands into exactly this method; fixing it after that lands means shipping a main-thread database read on the first command every player runs. Cost if wrong: rework in one class now instead of a worse fix later.
+
+**12.** Important #3 (ChatUi.confirm executes the action with no gate) is PARKED. The brief's premise — that the command layer requires an explicit --confirm — is simply not testable yet: there is no ..command.. package in the repo. The plan's Task 14 does specify `/ploceus project delete <key> --confirm`. Decision: park it here and carry the requirement into the Task 14 dispatch as a hard requirement rather than an assumption. Cost if wrong: if Task 14's implementer drops the flag, a click could delete a project unconfirmed — which is why it is going into that dispatch in writing.
+
+**13.** the Critical (CommandRegistrar never calls registerBrigadier(), so commands register only through the classic SimpleCommandMap path) goes into the fix loop. This is not a consequence of the manager choice — LegacyPaperCommandManager exposes registerBrigadier() and it was simply never wired. Without it players get no client-side argument validation on a server that fully supports it. Cost if wrong: one guarded call plus a capability check.
+
+**14.** this goes into a fix round immediately, ahead of the regular task review, and is treated as Critical. The plan is at fault — none of the UI briefs mention permissions, because the spec put access control with LuckPerms and I only ever wired it into the command layer. Authorisation must be enforced at the point of action, not at the point of navigation. Cost if wrong: rework in one class; shipping it means any player who can see a project can delete it.
+
+**15.** carry the render+execute permission pattern into the Task 17 dispatch as a hard requirement rather than leaving Task 17's implementer to rediscover it. Cost if wrong: none — it is the same pattern already proven here.
+
+**16.** the one Important — DialogPermissionsTest tests 3-5 reconstruct the guarding pattern instead of invoking DialogUi, so they would stay green if DialogUi's real wiring regressed — goes into fix round 2 rather than being parked. The current code is correct, but this is a security control with no regression protection, and the cheap fix is structural rather than another test: make it impossible to build an unguarded button by requiring a permission argument in the button factory. That converts a property nobody can test into one the compiler enforces. Cost if wrong: a small refactor in the dialog package.
+
+**17.** merge fix round 2 (Tasks 15+16) with Task 17 into a single dispatch, on a fresh implementer since the original agent is gone. Reason: the fix changes the dialog button factory to require a permission, and Task 17 needs the identical render+execute guarding for inventory items — while ArchUnit forbids the channel packages from importing each other. One implementer can decide once whether the guarding primitive belongs in a channel-neutral ui package serving all three channels, instead of Task 17 duplicating it and a later task reconciling them. Cost if wrong: one review covers a refactor plus a new channel rather than two smaller diffs.
+
+**18.** fix it now in its own dispatch rather than deferring to the final review. It is a Critical defect in a documented capability, the diagnosis is unambiguous, and Docker is available for the first time so it can actually be verified. Cost if wrong: the persistence layer changes late; leaving it means shipping a plugin whose PostgreSQL mode cannot start at all.
+
+**19.** all four Important findings go into the fix loop. (1) The submit callback wraps the whole of create() in scheduler.sync, so two DB reads, a DB write and two audit writes run on the main thread on every world creation — the Multiverse call must be there, the database work must not. (2) create() has no compensation: if worlds.save fails after multiverse.createWorld succeeded, an orphaned Multiverse world is left with no Ploceus record, and setAutoLoad/setAlias results are discarded unchecked — which contradicts the convention WorldService.rename already established in this codebase. (3) create() has no test coverage at all: duplicate rejection, the deviation audit and Multiverse-failure passthrough are all unexercised; the plan's own tests only covered resolveDefaults. (4) A world-name collision shows the player "A project with the key ... already exists" because create() reuses project.exists. Cost if wrong: rework in one service and one callback; leaving it means tick stalls on every creation plus a state divergence nobody is told about.
+
+**20.** the re-review surfaced NEW breakage introduced by the fix itself, and it goes into fix round 2. The sync phase has no try/catch, so if multiverse.createWorld throws instead of returning a failed result, the exception escapes before both the compensating delete and future.complete — the caller's CompletableFuture hangs forever AND the reserved row is orphaned. Because the row is now reserved BEFORE that phase, this is a state that could not occur under the old ordering, so the fix traded one defect for a narrower but worse one. MultiverseAdapter documents "every path out of this class must be an OperationResult, never a thrown exception" but nothing enforces it. Cost if wrong: a try/catch and a test; leaving it means a hung future and an orphan row whenever that invariant is ever broken.
+
+**21.** elevate the deferred "detail leaks to the player" minor for the final review. The re-review found a concrete path — dispatchRollback's fallback passes cause.getMessage() straight into a player-facing OperationResult — which together with the earlier ChatUi.feedback finding makes this a cross-cutting pattern rather than one slip: OperationResult's own doc says detail is for the log and never for the player, yet two independent places forward it to players, now including raw exception text. Not fixed here because it spans several files and belongs to whole-branch judgement. Cost if wrong: internal exception text shown in chat.
+
+**22.** the Important goes into a fix round. operations.md states there is "no way to set a description from any UI channel or command", which is wrong for projects — DialogUi's create and edit forms do wire a description field to projects.describe. Correct as written it tells an operator a core metadata feature is entirely missing when it is in fact channel-gated. World descriptions genuinely are unreachable everywhere, and that half of the claim stands. Cost if wrong: a paragraph of documentation; leaving it means the docs actively misdescribe the product.

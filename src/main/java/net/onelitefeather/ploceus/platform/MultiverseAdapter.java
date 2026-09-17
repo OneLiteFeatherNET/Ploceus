@@ -11,10 +11,12 @@ import org.mvplugins.multiverse.core.world.WorldManager;
 import org.mvplugins.multiverse.core.world.generators.GeneratorProvider;
 import org.mvplugins.multiverse.core.world.options.CreateWorldOptions;
 import org.mvplugins.multiverse.core.world.options.UnloadWorldOptions;
+import org.mvplugins.multiverse.external.vavr.control.Try;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -37,6 +39,25 @@ import java.util.logging.Logger;
 /// The guarantee is now enforced rather than described: {@link #api()} is the single point
 /// at which this class reaches Multiverse at all, and it asserts the main thread. A method
 /// added later that forgets to hop throws immediately instead of corrupting world state.
+///
+/// ## Persistence
+///
+/// Every setter on a Multiverse `MultiverseWorld` (`setAutoLoad`, `setAlias`, ...) only
+/// mutates the in-memory `WorldConfig`; nothing under Multiverse ever calls
+/// `WorldManager.saveWorldsConfig()` on the setter's behalf, and Multiverse does not flush
+/// it at shutdown either. A world whose auto-load was "successfully" disabled here and never
+/// saved loads again on the very next boot, having told the operator otherwise.
+///
+/// {@link #setAutoLoad} and {@link #setAlias} are therefore durable by contract: each folds
+/// the mutation and the follow-up `saveWorldsConfig()` into a single `OperationResult`
+/// through {@link #foldMutationThenSave}, so a caller that receives a success knows the
+/// change is on disk, not just in memory, and a failed save is reported the same way a
+/// failed mutation is. This was deliberately chosen over an explicit
+/// `saveWorldConfiguration()` that callers must remember to invoke — that shape is exactly
+/// what produced this bug (`PloceusPlugin.importExistingWorlds` called `setAutoLoad` once
+/// per world and nothing ever saved), and `worlds.yml` is small enough (six worlds on the
+/// server that found this) that a write per call is not worth the risk of a caller
+/// forgetting again.
 public class MultiverseAdapter {
 
     private static final Logger LOGGER = Logger.getLogger(MultiverseAdapter.class.getName());
@@ -118,6 +139,8 @@ public class MultiverseAdapter {
                 : OperationResult.failure("world.unload.failed", String.valueOf(attempt.getFailureReason()));
     }
 
+    /// Durable: a `Success` here means auto-load is off both in memory and in `worlds.yml`
+    /// (see the class Javadoc). A caller never needs to save separately.
     public OperationResult<Void> setAutoLoad(String worldName, boolean autoLoad) {
         return scheduler.onMainThread(() -> setAutoLoadOnMainThread(worldName, autoLoad));
     }
@@ -127,20 +150,17 @@ public class MultiverseAdapter {
         if (world.isEmpty()) {
             return OperationResult.failure("world.unknown", worldName);
         }
-        var result = world.get().setAutoLoad(autoLoad);
-        if (result.isSuccess()) {
-            return OperationResult.success(null);
-        }
-        // Vavr's getCause() is a Throwable. OperationResult.detail is rendered to the
-        // player, so the exception goes to the log and the player gets the world name.
-        LOGGER.log(Level.WARNING, "Could not change auto-load for '" + worldName + "'", result.getCause());
-        return OperationResult.failure("world.autoload.failed", worldName);
+        return foldMutationThenSave(world.get().setAutoLoad(autoLoad), worldName, "world.autoload.failed",
+                worldManager()::saveWorldsConfig);
     }
 
     /// Mutates Multiverse, so it hops to the main thread itself. `WorldService.rename`
     /// calls this from a virtual thread and must keep doing so *before* it persists
     /// anything — mirroring the alias first is what makes the rename all-or-nothing, since
     /// the alias is the retryable half. Only the thread was ever wrong there, not the order.
+    ///
+    /// Durable, same as {@link #setAutoLoad}: a `Success` means the alias is saved to
+    /// `worlds.yml`, not just held in memory.
     public OperationResult<Void> setAlias(String worldName, String alias) {
         return scheduler.onMainThread(() -> setAliasOnMainThread(worldName, alias));
     }
@@ -150,12 +170,33 @@ public class MultiverseAdapter {
         if (world.isEmpty()) {
             return OperationResult.failure("world.unknown", worldName);
         }
-        var result = world.get().setAlias(alias);
-        if (result.isSuccess()) {
-            return OperationResult.success(null);
+        return foldMutationThenSave(world.get().setAlias(alias), worldName, "world.alias.failed",
+                worldManager()::saveWorldsConfig);
+    }
+
+    /// The one place that decides whether a Multiverse property change counts as done:
+    /// not on a successful in-memory mutation alone, but only once the follow-up
+    /// `saveWorldsConfig()` also succeeds. This is deliberately a pure function of two
+    /// `Try` values and a `Supplier` — it needs no live `WorldManager` or
+    /// `MultiverseCoreApi` (both `final`, neither constructible in a test here) to exercise,
+    /// because the defect this guards against was never about Multiverse's behaviour, only
+    /// about this fold being missing. `save` is a `Supplier` rather than an already-evaluated
+    /// `Try` so a failed mutation never touches disk at all.
+    static OperationResult<Void> foldMutationThenSave(Try<Void> mutation, String worldName, String failureMessageKey,
+                                                       Supplier<Try<Void>> save) {
+        if (!mutation.isSuccess()) {
+            // Vavr's getCause() is a Throwable. OperationResult.detail is rendered to the
+            // player, so the exception goes to the log and the player gets the world name.
+            LOGGER.log(Level.WARNING, "Could not change '" + worldName + "'", mutation.getCause());
+            return OperationResult.failure(failureMessageKey, worldName);
         }
-        LOGGER.log(Level.WARNING, "Could not set the Multiverse alias of '" + worldName + "'", result.getCause());
-        return OperationResult.failure("world.alias.failed", worldName);
+        Try<Void> saved = save.get();
+        if (!saved.isSuccess()) {
+            LOGGER.log(Level.WARNING,
+                    "Changed '" + worldName + "' but could not persist worlds.yml", saved.getCause());
+            return OperationResult.failure(failureMessageKey, worldName);
+        }
+        return OperationResult.success(null);
     }
 
     public OperationResult<String> createWorld(WorldCreationRequest request) {

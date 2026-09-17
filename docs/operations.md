@@ -129,10 +129,21 @@ has a concrete, observable pass condition — not a vague "check that it works".
    confirms `MultiverseAdapter.snapshotAll()` enumerates every real Multiverse world, not
    just the fixture worlds the unit tests use.
 3. Still in the startup log.
-   **Expect:** a line reading `Disabled auto-load for N worlds. This takes effect from the
-   next server start.` — confirms `setAutoLoad` succeeds against the real `WorldManager`,
-   not a test double. Per "First start after installation" above, worlds still loaded this
-   time regardless.
+   **Expect:** a line reading `Disabled auto-load for N of M worlds and saved it to
+   worlds.yml. This takes effect from the next server start.` — confirms `setAutoLoad`
+   succeeds against the real `WorldManager` *and* that the change was actually persisted
+   (`WorldManager.saveWorldsConfig()`), not just accepted in memory. A `WARNING` line about
+   worlds that could not be persisted means some worlds will still auto-load next boot; the
+   log now says so instead of only reporting what was attempted. Per "First start after
+   installation" above, worlds still loaded this time regardless.
+
+   After this full start and a **clean** shutdown (not a kill), open
+   `plugins/Multiverse-Core/worlds.yml`. **Expect:** every Ploceus-managed world has
+   `auto-load: false`, and the file's modification time is at or after the shutdown, not the
+   earlier startup timestamp. This is the actual defect this project shipped once — the
+   in-memory change reported success while `worlds.yml` on disk never changed — and no unit
+   test can see it, only a real server run. See `MultiverseAdapter`'s persistence Javadoc
+   for why.
 4. Check the plugin's data folder.
    **Expect:** `plugins/Ploceus/data.mv.db` exists — confirms the H2 path resolution and the
    Liquibase migration produced a working database file.

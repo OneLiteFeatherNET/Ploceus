@@ -53,6 +53,12 @@ public final class PloceusPlugin extends JavaPlugin {
     /// Snapshot on the main thread, import off it. Auto-load is disabled afterwards, which
     /// only takes effect from the next server start — Multiverse loads its worlds before
     /// this plugin is enabled.
+    ///
+    /// `MultiverseAdapter.setAutoLoad` is durable (it folds `WorldManager.saveWorldsConfig()`
+    /// into its result), so `isSuccess()` here means the change actually reached
+    /// `worlds.yml`, not merely that Multiverse accepted it in memory. The log therefore
+    /// counts persisted changes, not attempts, and says so explicitly when some worlds
+    /// could not be persisted instead of silently reporting a smaller, still-rosy number.
     private void importExistingWorlds() {
         MultiverseAdapter multiverse = injector.getInstance(MultiverseAdapter.class);
         WorldImportService importService = injector.getInstance(WorldImportService.class);
@@ -64,15 +70,26 @@ public final class PloceusPlugin extends JavaPlugin {
                     .formatted(summary.imported(), summary.alreadyKnown(), summary.keyCollisions()));
 
             scheduler.sync(() -> {
-                int suppressed = 0;
+                int eligible = 0;
+                int persisted = 0;
                 for (WorldSnapshot snapshot : snapshots) {
-                    if (snapshot.autoLoad() && multiverse.setAutoLoad(snapshot.worldName(), false).isSuccess()) {
-                        suppressed++;
+                    if (!snapshot.autoLoad()) {
+                        continue;
+                    }
+                    eligible++;
+                    if (multiverse.setAutoLoad(snapshot.worldName(), false).isSuccess()) {
+                        persisted++;
                     }
                 }
-                if (suppressed > 0) {
-                    getLogger().info(("Disabled auto-load for %d worlds. "
-                            + "This takes effect from the next server start.").formatted(suppressed));
+                if (persisted > 0) {
+                    getLogger().info(("Disabled auto-load for %d of %d worlds and saved it to "
+                            + "worlds.yml. This takes effect from the next server start.")
+                            .formatted(persisted, eligible));
+                }
+                if (persisted < eligible) {
+                    getLogger().warning(("Could not persist the auto-load change for %d of %d "
+                            + "world(s); see the warnings above for which ones. They will still "
+                            + "auto-load at the next server start.").formatted(eligible - persisted, eligible));
                 }
             });
         });

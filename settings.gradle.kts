@@ -48,7 +48,7 @@ dependencyResolutionManagement {
             library("hibernate.core", "org.hibernate.orm", "hibernate-core").versionRef("hibernate")
             library("hikari", "com.zaxxer", "HikariCP").version("7.1.0")
             library("liquibase.core", "org.liquibase", "liquibase-core").versionRef("liquibase")
-            library("h2", "com.h2database", "h2").version("2.5.250")
+            library("h2", "com.h2database", "h2").version("2.5.252")
             library("postgresql", "org.postgresql", "postgresql").version("42.7.13")
             bundle("persistence", listOf("hibernate.core", "hikari", "liquibase.core", "h2", "postgresql"))
 

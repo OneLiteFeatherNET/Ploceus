@@ -57,7 +57,7 @@ dependencyResolutionManagement {
             library("archunit", "com.tngtech.archunit", "archunit-junit5").version("1.5.0")
             library("testcontainers.postgresql", "org.testcontainers", "postgresql").version("1.21.4")
             library("testcontainers.junit", "org.testcontainers", "junit-jupiter").version("1.21.4")
-            library("assertj", "org.assertj", "assertj-core").version("3.27.3")
+            library("assertj", "org.assertj", "assertj-core").version("3.27.4")
         }
     }
 }

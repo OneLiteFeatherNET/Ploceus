@@ -54,7 +54,7 @@ dependencyResolutionManagement {
 
             library("junit.jupiter", "org.junit.jupiter", "junit-jupiter").versionRef("junit")
             library("junit.platform.launcher", "org.junit.platform", "junit-platform-launcher").version("1.11.4")
-            library("archunit", "com.tngtech.archunit", "archunit-junit5").version("1.5.0")
+            library("archunit", "com.tngtech.archunit", "archunit-junit5").version("1.5.1")
             library("testcontainers.postgresql", "org.testcontainers", "postgresql").version("1.21.4")
             library("testcontainers.junit", "org.testcontainers", "junit-jupiter").version("1.21.4")
             library("assertj", "org.assertj", "assertj-core").version("3.27.3")

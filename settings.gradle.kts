@@ -15,7 +15,7 @@ dependencyResolutionManagement {
             version("multiverse", "5.8.1")
             version("cloud", "2.0.0")
             version("guice", "7.0.0")
-            version("hibernate", "7.4.8.Final")
+            version("hibernate", "7.4.9.Final")
             version("liquibase", "5.0.4")
             version("junit", "5.11.4")
             // Matches the slf4j-api version paper-api itself declares as an `api` dependency

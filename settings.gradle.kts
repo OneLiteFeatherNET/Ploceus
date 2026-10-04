@@ -22,7 +22,7 @@ dependencyResolutionManagement {
             // (paper-api-26.2.build.123-stable/build.gradle.kts: `val slf4jVersion = "2.0.16"`),
             // so the version we compile against is exactly the one already on Paper's runtime
             // classpath - see the SLF4J note in HibernateBootstrap/logging classes.
-            version("slf4j", "2.0.16")
+            version("slf4j", "2.0.17")
             // Ceiling tested by opentelemetry-javaagent 2.16.0 (the jar sitting in the server's
             // directory): its own muzzle compatibility markers top out at opentelemetry-api 1.50,
             // so 1.51.0 - the oldest release at/after that ceiling available in the local Gradle

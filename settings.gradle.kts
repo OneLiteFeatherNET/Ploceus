@@ -27,7 +27,7 @@ dependencyResolutionManagement {
             // directory): its own muzzle compatibility markers top out at opentelemetry-api 1.50,
             // so 1.51.0 - the oldest release at/after that ceiling available in the local Gradle
             // cache - is the most conservative choice that still resolves offline.
-            version("opentelemetry", "1.51.0")
+            version("opentelemetry", "1.52.0")
 
             library("paper.api", "io.papermc.paper", "paper-api").versionRef("paper")
             library("multiverse.core", "org.mvplugins.multiverse.core", "multiverse-core").versionRef("multiverse")

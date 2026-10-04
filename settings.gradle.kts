@@ -13,7 +13,7 @@ dependencyResolutionManagement {
         create("libs") {
             version("paper", "26.2.build.123-stable")
             version("multiverse", "5.8.1")
-            version("cloud", "2.0.0")
+            version("cloud", "2.0.1")
             version("guice", "7.0.0")
             version("hibernate", "7.4.8.Final")
             version("liquibase", "5.0.4")

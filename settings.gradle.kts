@@ -17,7 +17,7 @@ dependencyResolutionManagement {
             version("guice", "7.0.0")
             version("hibernate", "7.4.8.Final")
             version("liquibase", "5.0.4")
-            version("junit", "5.11.4")
+            version("junit", "5.12.0")
             // Matches the slf4j-api version paper-api itself declares as an `api` dependency
             // (paper-api-26.2.build.123-stable/build.gradle.kts: `val slf4jVersion = "2.0.16"`),
             // so the version we compile against is exactly the one already on Paper's runtime

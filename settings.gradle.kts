@@ -42,7 +42,7 @@ dependencyResolutionManagement {
             bundle("cloud", listOf("cloud.paper", "cloud.annotations", "cloud.extras"))
 
             library("guice", "com.google.inject", "guice").versionRef("guice")
-            library("inventoryframework", "com.github.stefvanschie.inventoryframework", "IF").version("0.12.1")
+            library("inventoryframework", "com.github.stefvanschie.inventoryframework", "IF").version("0.12.2")
             library("datafaker", "net.datafaker", "datafaker").version("2.7.0")
 
             library("hibernate.core", "org.hibernate.orm", "hibernate-core").versionRef("hibernate")
